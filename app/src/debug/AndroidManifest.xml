@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 디버그 빌드 전용: QR 주소 덮어쓰기 (릴리스 매니페스트에는 들어가지 않음) -->
+        <receiver
+            android:name=".export.DebugQrHostReceiver"
+            android:exported="true" />
+    </application>
+</manifest>

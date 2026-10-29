@@ -22,6 +22,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -42,6 +43,10 @@ dependencies {
 
     // xlsx 생성 (Apache POI 대신 가벼운 쓰기 전용 라이브러리)
     implementation("org.dhatim:fastexcel:0.18.4")
+
+    // 휴대폰으로 받기: 앱 안 일회용 HTTP 서버 + QR (둘 다 의존성 없는 소형 라이브러리)
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("io.nayuki:qrcodegen:1.8.0")
 
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")

@@ -33,6 +33,8 @@ import app.bizdrivelog.drive.DriveRecorderService
 import app.bizdrivelog.drive.DriveState
 import app.bizdrivelog.export.Ledger
 import app.bizdrivelog.export.LedgerExporter
+import app.bizdrivelog.export.QrDownloadController
+import app.bizdrivelog.export.QrState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -55,6 +57,9 @@ class MainActivity : ComponentActivity() {
     private val profileStore by lazy { ProfileStore(this) }
     private var profile by mutableStateOf(LedgerProfile())
     private var exportState by mutableStateOf(ExportState())
+    private var qrState by mutableStateOf<QrState>(QrState.Idle)
+    private var canShare by mutableStateOf(false)
+    private val qrController by lazy { QrDownloadController(applicationContext) { qrState = it } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,8 +96,12 @@ class MainActivity : ComponentActivity() {
                         records = recordList,
                         profile = profile,
                         state = exportState,
+                        qrState = qrState,
+                        canShare = canShare,
                         onExport = ::export,
                         onShare = ::share,
+                        onStartQr = ::startQr,
+                        onCloseQr = { qrController.stop(QrState.Idle); qrState = QrState.Idle },
                         onBack = { screen = Screen.HOME },
                     )
                     else -> HomeScreen(
@@ -103,12 +112,23 @@ class MainActivity : ComponentActivity() {
                             confirm = ::confirm,
                             correct = ::correct,
                             openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
-                            openExport = { exportState = ExportState(); screen = Screen.EXPORT },
+                            openExport = {
+                                exportState = ExportState()
+                                canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
+                                screen = Screen.EXPORT
+                            },
                         ),
                     )
                 }
             }
         }
+    }
+
+    /** 화면이 가려지거나 꺼지면 QR 서버도 닫는다 */
+    override fun onStop() {
+        qrController.stop(QrState.Idle)
+        qrState = QrState.Idle
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -166,14 +186,21 @@ class MainActivity : ComponentActivity() {
             .putExtra(Intent.EXTRA_STREAM, uri)
             .putExtra(Intent.EXTRA_SUBJECT, file.nameWithoutExtension)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        val handlers = packageManager.queryIntentActivities(send, 0)
-        Log.i(TAG, "share handlers=${handlers.size} ${handlers.map { it.activityInfo.packageName }}")
-        if (handlers.isEmpty()) {
+        if (shareHandlers(send) == 0) {
             exportState = exportState.copy(message = "이 차량에는 파일을 받을 앱이 없습니다 (ACTION_SEND 처리 앱 0개)")
             return
         }
         runCatching { startActivity(Intent.createChooser(send, "운행기록부 보내기")) }
             .onFailure { exportState = exportState.copy(message = "보내기 화면을 열지 못했습니다 (${it.message})") }
+    }
+
+    private fun shareHandlers(intent: Intent): Int =
+        packageManager.queryIntentActivities(intent, 0).size.also { Log.i(TAG, "share handlers=$it") }
+
+    /** 휴대폰으로 받기: 주행 중에는 비활성 */
+    private fun startQr(file: File) {
+        if (restricted) return
+        qrController.start(file, file.name)
     }
 
     private fun registerCurrentLocation(kind: PlaceKind) {
@@ -224,6 +251,7 @@ class MainActivity : ComponentActivity() {
     private fun apply(restrictions: CarUxRestrictions) {
         Log.i(TAG, "uxRestrictions requiresDO=${restrictions.isRequiresDistractionOptimization} active=${restrictions.activeRestrictions}")
         restricted = restrictions.isRequiresDistractionOptimization
+        if (restricted) qrController.stop(QrState.Idle)
     }
 
     companion object {

@@ -15,6 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,7 @@ import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.export.Ledger
 import app.bizdrivelog.export.LedgerPeriod
 import app.bizdrivelog.export.LedgerPeriodKind
+import app.bizdrivelog.export.QrState
 import java.io.File
 import java.util.Locale
 
@@ -40,13 +42,23 @@ fun ExportScreen(
     records: List<TripRecord>,
     profile: LedgerProfile,
     state: ExportState,
+    qrState: QrState,
+    canShare: Boolean,
     onExport: (Ledger) -> Unit,
     onShare: (File) -> Unit,
+    onStartQr: (File) -> Unit,
+    onCloseQr: () -> Unit,
     onBack: () -> Unit,
 ) {
+    // 서버는 이 화면이 떠 있는 동안만 (화면을 벗어나거나 주행 화면으로 바뀌면 종료)
+    DisposableEffect(Unit) { onDispose(onCloseQr) }
     var kind by remember { mutableStateOf(LedgerPeriodKind.THIS_MONTH) }
     val ledger = Ledger.build(records, profile, LedgerPeriod.of(kind))
 
+    if (qrState != QrState.Idle) {
+        QrPanel(qrState, state.file, onRetry = { state.file?.let(onStartQr) }, onClose = onCloseQr)
+        return
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← 운행기록", fontSize = 22.sp) }
@@ -91,7 +103,12 @@ fun ExportScreen(
             }
             Spacer(Modifier.width(16.dp))
             state.file?.let { file ->
-                OutlinedButton(onClick = { onShare(file) }, modifier = Modifier.height(64.dp)) { Text("보내기", fontSize = 24.sp) }
+                Button(onClick = { onStartQr(file) }, modifier = Modifier.height(64.dp)) { Text("휴대폰으로 받기", fontSize = 24.sp) }
+                // 차량에 공유를 받을 앱이 있을 때만
+                if (canShare) {
+                    Spacer(Modifier.width(16.dp))
+                    OutlinedButton(onClick = { onShare(file) }, modifier = Modifier.height(64.dp)) { Text("보내기", fontSize = 24.sp) }
+                }
             }
         }
         state.file?.let { Text("저장됨 (앱 전용 저장소): ${it.name}", fontSize = 20.sp, color = Accent, modifier = Modifier.padding(top = 16.dp)) }
