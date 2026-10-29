@@ -38,6 +38,7 @@ ksp {
 
 dependencies {
     implementation("ai.pleos.playground:Vehicle:2.3.2")
+    implementation("ai.pleos.playground:FusedLocation:1.1.3")
 
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")

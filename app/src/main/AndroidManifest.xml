@@ -3,6 +3,8 @@
 
     <!-- Vehicle SDK Odometer: @RequiresPermission(PleosPermission.CAR_DRIVE) -->
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <!-- FusedLocation SDK: 위치 조회·영역 알림 (protection level: dangerous) -->
+    <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
     <!-- AAOS Car API: GEAR_SELECTION -->
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
 
