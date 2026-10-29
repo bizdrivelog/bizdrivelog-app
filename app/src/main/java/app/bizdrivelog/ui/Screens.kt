@@ -209,7 +209,7 @@ private fun TripCard(trip: Trip, voice: VoicePhase?, actions: HomeActions) {
     Card(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
         Column(Modifier.padding(24.dp)) {
             Text(
-                "방금 운행 #${trip.id}  ·  ${DATE_SHORT.format(Date(trip.startedAt))} ${timeRange(trip)}  ·  ${routeText(trip)}  ·  ${formatKm(trip.distanceKm ?: 0.0)}",
+                "방금 운행 #${trip.id}  ·  ${DATE_SHORT.format(Date(trip.startedAt))} ${timeRange(trip)}  ·  ${routeText(trip)}  ·  ${distanceText(trip) ?: formatKm(0.0)}",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -331,7 +331,7 @@ private fun TripRow(record: TripRecord, onCheck: () -> Unit, onCorrect: () -> Un
             Cell(routeText(trip), 3)
             Cell(formatKm(trip.startOdometerKm), 4, align = TextAlign.End)
             Cell(trip.endOdometerKm?.let { formatKm(it) } ?: "주행 중", 5, align = TextAlign.End)
-            Cell(trip.distanceKm?.let { formatKm(it) } ?: "-", 6, align = TextAlign.End, bold = true)
+            Cell(distanceText(trip) ?: "-", 6, align = TextAlign.End, bold = true, color = if (trip.odometerAnomaly) Warn else Color.Unspecified)
             Cell(trip.mode?.label ?: "-", 7, align = TextAlign.Center)
             Cell(listOf(trip.purpose, trip.visitPlace).filter { it.isNotBlank() }.joinToString(" · "), 8)
             Row(Modifier.weight(columnWeights[9]), horizontalArrangement = Arrangement.End) {
@@ -529,6 +529,11 @@ private fun routeText(trip: Trip): String = when {
 private fun timeRange(trip: Trip) = TIME.format(Date(trip.startedAt)) + (trip.endedAt?.let { "–" + TIME.format(Date(it)) } ?: "")
 
 internal fun formatKm(km: Double) = String.format(Locale.KOREA, "%,.1f km", km)
+
+/** 종료 누적거리 < 시작이면 거리 대신 "계기판 값 이상" (집계 제외) */
+private fun distanceText(trip: Trip): String? = if (trip.odometerAnomaly) ODOMETER_ANOMALY else trip.distanceKm?.let { formatKm(it) }
+
+internal const val ODOMETER_ANOMALY = "계기판 값 이상"
 
 private val DATE = SimpleDateFormat("yyyy-MM-dd (E)", Locale.KOREA)
 private val DATE_SHORT = SimpleDateFormat("M/d (E)", Locale.KOREA)

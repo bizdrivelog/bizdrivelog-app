@@ -60,7 +60,8 @@ data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
     val ratioPercent: Double get() = if (totalKm > 0) Math.round(businessUseKm / totalKm * 1000) / 10.0 else 0.0
 }
 
-class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: List<LedgerRow>) {
+/** anomalies: 기간 안의 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외) */
+class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: List<LedgerRow>, val anomalies: List<TripRecord> = emptyList()) {
     val totals = LedgerTotals(round1(rows.sumOf { it.distanceKm }), round1(rows.sumOf { (it.commuteKm ?: 0.0) + (it.businessKm ?: 0.0) }))
     val corrections = rows.flatMap { it.record.corrections }
     val unconfirmed = rows.count { !it.record.trip.isConfirmed }
@@ -85,7 +86,10 @@ class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: Lis
                         remark = remarkOf(record),
                     )
                 }
-            return Ledger(profile, period, rows)
+            val anomalies = records.filter {
+                it.trip.odometerAnomaly && Instant.ofEpochMilli(it.trip.startedAt).atZone(zone).toLocalDate() in period
+            }
+            return Ledger(profile, period, rows, anomalies)
         }
 
         /** ⑩ 비고: [구분] 업무 목적 · 방문처 (정정 n건) */

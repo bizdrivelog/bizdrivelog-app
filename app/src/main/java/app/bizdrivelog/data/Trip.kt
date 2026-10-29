@@ -37,7 +37,10 @@ data class Trip(
     val userDept: String? = null,
     val userName: String? = null,
 ) {
-    /** 계기판 값이 0.1km 단위라 소수 첫째 자리로 맞춘다 (12353.4 - 12351.0 = 2.3999…) */
-    val distanceKm: Double? get() = endOdometerKm?.let { Math.round((it - startOdometerKm) * 10) / 10.0 }
+    /** 계기판 값 이상: 종료 누적거리가 시작보다 작다 (계기판 초기화·교체 등). 거리를 알 수 없어 집계에서 뺀다 */
+    val odometerAnomaly: Boolean get() = endOdometerKm != null && endOdometerKm < startOdometerKm
+
+    /** 계기판 값이 0.1km 단위라 소수 첫째 자리로 맞춘다 (12353.4 - 12351.0 = 2.3999…). 계기판 값 이상이면 null */
+    val distanceKm: Double? get() = endOdometerKm?.takeIf { it >= startOdometerKm }?.let { Math.round((it - startOdometerKm) * 10) / 10.0 }
     val isConfirmed: Boolean get() = confirmedAt != null
 }

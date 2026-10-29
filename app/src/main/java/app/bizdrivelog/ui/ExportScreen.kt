@@ -85,6 +85,9 @@ fun ExportScreen(
                         " · 정정 ${ledger.corrections.size}건",
                     fontSize = 22.sp,
                 )
+                if (ledger.anomalies.isNotEmpty()) {
+                    Text("$ODOMETER_ANOMALY ${ledger.anomalies.size}건 제외 (종료 누적거리가 시작보다 작음)", fontSize = 19.sp, color = Warn)
+                }
                 Spacer(Modifier.height(12.dp))
                 Row {
                     Total("⑪ 총주행거리", formatKm(ledger.totals.totalKm))
