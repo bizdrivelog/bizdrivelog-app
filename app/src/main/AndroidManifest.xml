@@ -7,6 +7,9 @@
     <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
     <!-- AAOS Car API: GEAR_SELECTION -->
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
+    <!-- 음성 안내·응답: Pleos TextToSpeech / SpeechToText ON_DEVICE (protection level: normal) -->
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <uses-permission android:name="pleos.car.permission.STT_SERVICE" />
 
     <!-- 휴대폰으로 받기: 같은 Wi-Fi(휴대폰 핫스팟)에서 앱 안 HTTP 서버로 파일 전달 -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -35,6 +38,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -44,7 +48,23 @@
             <meta-data
                 android:name="distractionOptimized"
                 android:value="true" />
+            <!-- Gleo Interface: assets/schema.json의 component="activity" 함수 -->
+            <intent-filter>
+                <action android:name="SHOW_DOWNLOAD_QR" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <!-- Gleo Interface: component="service" 함수 (화면 없이 처리 후 APP_ACTION_RESPONSE로 응답).
+             확정된 운행은 DB 트리거로 잠겨 있어 이 경로로 바꿀 수 없다 -->
+        <receiver
+            android:name=".voice.GleoActionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="SET_TRIP_PURPOSE" />
+                <action android:name="GET_BUSINESS_RATIO" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".drive.DriveRecorderService"

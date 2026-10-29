@@ -40,6 +40,8 @@ ksp {
 dependencies {
     implementation("ai.pleos.playground:Vehicle:2.3.2")
     implementation("ai.pleos.playground:FusedLocation:1.1.3")
+    implementation("ai.pleos.playground:SpeechToText:3.3.1")
+    implementation("ai.pleos.playground:TextToSpeech:3.3.1")
 
     // xlsx 생성 (Apache POI 대신 가벼운 쓰기 전용 라이브러리)
     implementation("org.dhatim:fastexcel:0.18.4")
@@ -58,4 +60,6 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+
+    testImplementation("junit:junit:4.13.2")
 }

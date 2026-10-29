@@ -1,0 +1,73 @@
+{
+  "packageName": "app.bizdrivelog",
+  "appDescription": "A business vehicle logbook that automatically records each trip's odometer distance and keeps the trip purpose for the corporate tax vehicle log.",
+  "invokeWord": "운행기록부",
+  "version": "0.1.0",
+  "actionCalls": [
+    {
+      "type": "function",
+      "function": {
+        "name": "SET_TRIP_PURPOSE",
+        "description": "Record the type and purpose of the current or most recently finished trip in the vehicle logbook.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "tripType": {
+              "type": "string",
+              "description": "Category of the trip for the vehicle logbook.",
+              "enum": ["business", "commute", "personal"]
+            },
+            "purpose": {
+              "type": "string",
+              "description": "Purpose of the trip as stated by the user."
+            },
+            "visitPlace": {
+              "type": "string",
+              "description": "Name of the company or place visited on a business trip."
+            }
+          },
+          "required": ["tripType"]
+        },
+        "component": "service"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "GET_BUSINESS_RATIO",
+        "description": "Get the total distance, business-use distance and business-use ratio of the vehicle for a period.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "period": {
+              "type": "string",
+              "description": "Period to summarize.",
+              "enum": ["this_month", "last_month", "this_year"]
+            }
+          },
+          "required": []
+        },
+        "component": "service"
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "SHOW_DOWNLOAD_QR",
+        "description": "Show a QR code on the vehicle screen so the user can download the vehicle logbook spreadsheet to their phone.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "period": {
+              "type": "string",
+              "description": "Period of the logbook to download.",
+              "enum": ["this_month", "last_month", "this_year"]
+            }
+          },
+          "required": []
+        },
+        "component": "activity"
+      }
+    }
+  ]
+}

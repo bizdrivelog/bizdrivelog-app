@@ -35,6 +35,11 @@ import app.bizdrivelog.export.Ledger
 import app.bizdrivelog.export.LedgerExporter
 import app.bizdrivelog.export.QrDownloadController
 import app.bizdrivelog.export.QrState
+import app.bizdrivelog.export.LedgerPeriod
+import app.bizdrivelog.voice.Gleo
+import app.bizdrivelog.voice.VoiceSettings
+import app.bizdrivelog.voice.VoiceState
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -60,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private var qrState by mutableStateOf<QrState>(QrState.Idle)
     private var canShare by mutableStateOf(false)
     private val qrController by lazy { QrDownloadController(applicationContext) { qrState = it } }
+    private val voiceSettings by lazy { VoiceSettings(this) }
+    private var voiceEnabled by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +74,7 @@ class MainActivity : ComponentActivity() {
         connectUxRestrictions()
         requestLocationPermission()
         profile = profileStore.load()
+        voiceEnabled = voiceSettings.enabled
         fusedLocation = runCatching { FusedLocation(applicationContext).also { it.initialize() } }.getOrNull()
 
         val tripDao = database.tripDao()
@@ -80,6 +88,7 @@ class MainActivity : ComponentActivity() {
             val status by DriveState.status.collectAsStateWithLifecycle()
             val recordList by records.collectAsStateWithLifecycle(initialValue = emptyList())
             val placeList by places.collectAsStateWithLifecycle(initialValue = emptyList())
+            val voicePhase by VoiceState.phase.collectAsStateWithLifecycle()
             BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
             BizDriveLogTheme {
                 when {
@@ -88,6 +97,8 @@ class MainActivity : ComponentActivity() {
                         places = placeList,
                         message = settingsMessage,
                         profile = profile,
+                        voiceEnabled = voiceEnabled,
+                        onVoiceEnabled = ::toggleVoice,
                         onRegister = ::registerCurrentLocation,
                         onSaveProfile = { profileStore.save(it); profile = profileStore.load(); settingsMessage = "머리 정보를 저장했습니다" },
                         onBack = { screen = Screen.HOME },
@@ -107,10 +118,12 @@ class MainActivity : ComponentActivity() {
                     else -> HomeScreen(
                         status = status,
                         records = recordList,
+                        voice = if (voiceEnabled) voicePhase else null,
                         actions = HomeActions(
                             classify = ::classify,
                             confirm = ::confirm,
                             correct = ::correct,
+                            askVoice = { DriveRecorderService.ask(this, it.id) },
                             openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
                             openExport = {
                                 exportState = ExportState()
@@ -122,6 +135,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        handleGleo(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleGleo(intent)
     }
 
     /** 화면이 가려지거나 꺼지면 QR 서버도 닫는다 */
@@ -201,6 +220,48 @@ class MainActivity : ComponentActivity() {
     private fun startQr(file: File) {
         if (restricted) return
         qrController.start(file, file.name)
+    }
+
+    private fun toggleVoice(enabled: Boolean) {
+        voiceSettings.enabled = enabled
+        voiceEnabled = enabled
+        if (!enabled) DriveRecorderService.stopVoice(this)
+    }
+
+    /** Gleo SHOW_DOWNLOAD_QR (component = "activity"): 엑셀을 만들고 QR을 띄운 뒤 결과를 Gleo에 돌려준다 */
+    private fun handleGleo(intent: Intent?) {
+        if (intent?.action != Gleo.SHOW_DOWNLOAD_QR) return
+        setIntent(Intent(this, MainActivity::class.java))
+        val params = Gleo.params(intent)
+        Log.i(TAG, "gleo action ${Gleo.SHOW_DOWNLOAD_QR} params=$params")
+        if (restricted) {
+            Gleo.respond(this, Gleo.SHOW_DOWNLOAD_QR, Gleo.Result(Gleo.Status.FAIL, "The QR code cannot be shown while driving. Please try again after parking."))
+            return
+        }
+        lifecycleScope.launch {
+            val result = runCatching {
+                withTimeoutOrNull(Gleo.DEADLINE_MS) {
+                    val dao = database.tripDao()
+                    val corrections = dao.getCorrections().groupBy { it.tripId }
+                    val records = dao.getAll().map { TripRecord(it, corrections[it.id].orEmpty()) }
+                    val ledger = Ledger.build(records, profile, LedgerPeriod.of(Gleo.periodKind(params)))
+                    val file = withContext(Dispatchers.IO) { LedgerExporter.write(ledger, File(filesDir, "exports")) }
+                    exportState = ExportState(file = file)
+                    canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
+                    screen = Screen.EXPORT
+                    qrController.start(file, file.name)
+                    when (qrState) {
+                        is QrState.Waiting -> Gleo.Result(Gleo.Status.SUCCESS, "The QR code is on the screen. Scan it with your phone camera within five minutes.")
+                        QrState.NoWifi -> Gleo.Result(Gleo.Status.FAIL, "The vehicle is not connected to Wi-Fi. Connect it to your phone's hotspot and try again.")
+                        else -> Gleo.Result(Gleo.Status.FAIL, "The download server could not be started.")
+                    }
+                } ?: Gleo.Result(Gleo.Status.FAIL, "A timeout occurred while processing the request.")
+            }.getOrElse {
+                Log.e(TAG, "gleo qr failed", it)
+                Gleo.Result(Gleo.Status.FAIL, "An error occurred while preparing the logbook file.")
+            }
+            Gleo.respond(this@MainActivity, Gleo.SHOW_DOWNLOAD_QR, result)
+        }
     }
 
     private fun registerCurrentLocation(kind: PlaceKind) {

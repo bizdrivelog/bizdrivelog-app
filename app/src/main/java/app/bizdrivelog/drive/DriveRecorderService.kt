@@ -35,6 +35,10 @@ import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripDao
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.ui.MainActivity
+import app.bizdrivelog.voice.VoiceAnswer
+import app.bizdrivelog.voice.VoiceGuide
+import app.bizdrivelog.voice.VoiceSettings
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -47,6 +51,7 @@ import kotlin.coroutines.resume
  * 시작·종료 시점의 계기판 누적거리(Odometer.getCurrentDistanceDriven, km)와 위치를 저장하고,
  * 종료 시 자택·회사 영역(FusedLocation addProximityAlert)과 요일로 3모드를 제안한다.
  * 차량·위치 콜백은 여러 스레드에서 오므로 이벤트 채널 하나로 모아 순서대로 처리한다.
+ * 음성(설정에서 끌 수 있음): 운행 시작 시 짧은 안내만, 종료(P) 후 분류·목적을 묻고 답을 분류 확인 카드에 채운다.
  */
 class DriveRecorderService : LifecycleService() {
 
@@ -66,6 +71,9 @@ class DriveRecorderService : LifecycleService() {
     private var car: Car? = null
     private var propertyManager: CarPropertyManager? = null
     private var fusedLocation: FusedLocation? = null
+    private val voiceSettings by lazy { VoiceSettings(this) }
+    private var voice: VoiceGuide? = null
+    private var voiceJob: Job? = null
 
     private var lastGear: Int? = null
     private var lastOdometerKm: Double? = null
@@ -111,7 +119,20 @@ class DriveRecorderService : LifecycleService() {
         lifecycleScope.launch { connect() }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        when (intent?.action) {
+            ACTION_ASK -> intent.getLongExtra(EXTRA_TRIP_ID, -1).takeIf { it > 0 }?.let { id ->
+                lifecycleScope.launch { tripDao.find(id)?.let { askAbout(it.id, it.mode) } }
+            }
+            ACTION_STOP_VOICE -> stopVoice()
+        }
+        return START_STICKY
+    }
+
     override fun onDestroy() {
+        stopVoice()
+        runCatching { voice?.release() }
         runCatching { vehicle?.getOdometer()?.unregisterDistanceDriven(distanceListener) }
         runCatching { propertyManager?.unregisterCallback(gearCallback) }
         alertIds.values.forEach { id -> runCatching { fusedLocation?.removeProximityAlert(id) } }
@@ -229,13 +250,18 @@ class DriveRecorderService : LifecycleService() {
         tripDao.insert(trip)
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = odometer) }
         Log.i(TAG, "trip started at $odometer km from=${trip.fromPlace}")
+        // 주행 중에는 화면 입력 없이 이 한 마디만
+        stopVoice()
+        if (voiceSettings.enabled) voiceJob = lifecycleScope.launch { voice().speak("운행 기록을 시작합니다") }
     }
 
     private suspend fun endTrip(open: Trip) {
         val odometer = currentOdometer() ?: open.startOdometerKm
         val location = readLocation()
         val to = placeAt(location, "end")
-        val suggestion = TripClassifier.suggest(open.startedAt, open.fromPlace, to)
+        // 주행 중 Gleo로 이미 분류·목적을 말했으면 그 값을 유지한다
+        val preset = open.mode?.let { TripClassifier.Suggestion(it, open.modeBy, open.purpose) }
+        val suggestion = preset ?: TripClassifier.suggest(open.startedAt, open.fromPlace, to)
         val personal = suggestion.mode == TripMode.PERSONAL
         tripDao.update(
             open.copy(
@@ -254,6 +280,38 @@ class DriveRecorderService : LifecycleService() {
         )
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = null) }
         Log.i(TAG, "trip ended at $odometer km (${odometer - open.startOdometerKm} km) ${open.fromPlace}->$to suggest=${suggestion.mode} (${suggestion.reason})")
+        if (preset == null) askAbout(open.id, suggestion.mode)
+    }
+
+    /** 정차 후 음성 질문. 인식 실패·무응답이면 아무것도 하지 않고 화면 카드 입력으로 넘어간다. */
+    private fun askAbout(tripId: Long, suggested: TripMode?) {
+        if (!voiceSettings.enabled) return
+        stopVoice()
+        voiceJob = lifecycleScope.launch {
+            val guide = voice()
+            val text = guide.ask(question(suggested)) ?: return@launch
+            val answer = VoiceAnswer.parse(text, suggested)
+            val trip = tripDao.find(tripId)
+            Log.i(TAG, "voice answer trip=$tripId \"$text\" -> $answer")
+            if (answer?.mode == null || trip == null || trip.isConfirmed) return@launch
+            val purpose = answer.purpose.ifEmpty { if (answer.mode == trip.mode) trip.purpose else "" }
+            tripDao.classify(tripId, answer.mode, "음성 응답 “$text”", purpose, answer.visitPlace)
+            guide.speak("입력했습니다. " + listOf(answer.mode.label, purpose).filter { it.isNotEmpty() }.joinToString(", ") + ". 화면에서 확정해 주세요")
+        }
+    }
+
+    private fun question(suggested: TripMode?): String = when (suggested) {
+        TripMode.COMMUTE -> "이번 운행은 출퇴근으로 기록할까요? 다르면 말씀해 주세요"
+        TripMode.PERSONAL -> "이번 운행은 개인 운행으로 기록할까요? 업무였다면 목적을 말씀해 주세요"
+        else -> "이번 운행은 업무로 기록할까요? 목적을 말씀해 주세요"
+    }
+
+    private fun voice(): VoiceGuide = voice ?: VoiceGuide(this).also { voice = it }
+
+    private fun stopVoice() {
+        voiceJob?.cancel()
+        voiceJob = null
+        voice?.stop()
     }
 
     /** 영역 알림(ENTER/EXIT) 상태를 우선 쓰고, 알림을 아직 못 받았으면 좌표와 반경으로 판단한다. */
@@ -326,8 +384,21 @@ class DriveRecorderService : LifecycleService() {
         private const val CHANNEL_ID = "drive_recorder"
         private const val NOTIFICATION_ID = 1
 
+        private const val ACTION_ASK = "app.bizdrivelog.action.ASK_VOICE"
+        private const val ACTION_STOP_VOICE = "app.bizdrivelog.action.STOP_VOICE"
+        private const val EXTRA_TRIP_ID = "tripId"
+
         fun start(context: Context) {
             context.startForegroundService(Intent(context, DriveRecorderService::class.java))
+        }
+
+        /** 분류 확인 카드의 "음성으로 답하기" */
+        fun ask(context: Context, tripId: Long) {
+            context.startService(Intent(context, DriveRecorderService::class.java).setAction(ACTION_ASK).putExtra(EXTRA_TRIP_ID, tripId))
+        }
+
+        fun stopVoice(context: Context) {
+            context.startService(Intent(context, DriveRecorderService::class.java).setAction(ACTION_STOP_VOICE))
         }
 
         /** Float 그대로 Double로 바꾸면 12346.1f → 12346.099609375가 되므로 문자열을 거친다 */

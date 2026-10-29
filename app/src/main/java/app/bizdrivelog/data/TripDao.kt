@@ -22,8 +22,18 @@ interface TripDao {
     @Query("SELECT * FROM trips WHERE id = :id")
     suspend fun find(id: Long): Trip?
 
+    /** 가장 최근에 끝났지만 아직 확정 안 된 운행 (음성으로 목적을 채울 대상) */
+    @Query("SELECT * FROM trips WHERE endedAt IS NOT NULL AND confirmedAt IS NULL ORDER BY endedAt DESC LIMIT 1")
+    suspend fun findLatestUnconfirmed(): Trip?
+
     @Query("SELECT * FROM trips ORDER BY startedAt DESC")
     fun observeAll(): Flow<List<Trip>>
+
+    @Query("SELECT * FROM trips ORDER BY startedAt DESC")
+    suspend fun getAll(): List<Trip>
+
+    @Query("SELECT * FROM corrections ORDER BY id")
+    suspend fun getCorrections(): List<Correction>
 
     @Query("SELECT * FROM corrections ORDER BY id")
     fun observeCorrections(): Flow<List<Correction>>

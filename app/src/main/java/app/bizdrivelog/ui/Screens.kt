@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -58,6 +59,7 @@ import app.bizdrivelog.drive.DriveStatus
 import app.bizdrivelog.export.Ledger
 import app.bizdrivelog.export.LedgerPeriod
 import app.bizdrivelog.export.LedgerPeriodKind
+import app.bizdrivelog.voice.VoicePhase
 import java.text.SimpleDateFormat
 import java.time.YearMonth
 import java.util.Date
@@ -75,6 +77,7 @@ class HomeActions(
     val classify: (trip: Trip, mode: TripMode, modeBy: String, purpose: String, visitPlace: String) -> Unit,
     val confirm: (Trip) -> Unit,
     val correct: (record: TripRecord, mode: TripMode, purpose: String, visitPlace: String, reason: String) -> Unit,
+    val askVoice: (Trip) -> Unit,
     val openSettings: () -> Unit,
     val openExport: () -> Unit,
 )
@@ -103,7 +106,7 @@ fun DrivingScreen(status: DriveStatus) {
 }
 
 @Composable
-fun HomeScreen(status: DriveStatus, records: List<TripRecord>, actions: HomeActions) {
+fun HomeScreen(status: DriveStatus, records: List<TripRecord>, voice: VoicePhase?, actions: HomeActions) {
     var selectedId by remember { mutableStateOf<Long?>(null) }
     var correcting by remember { mutableStateOf<TripRecord?>(null) }
     val pending = records.firstOrNull { it.trip.id == selectedId && !it.trip.isConfirmed && it.trip.endedAt != null }
@@ -114,7 +117,7 @@ fun HomeScreen(status: DriveStatus, records: List<TripRecord>, actions: HomeActi
         item { MonthSummary(records) }
         // 분류 확인 카드는 정차 중에만 (운행 중이면 아직 종료 전이라 카드 대상이 없음)
         if (pending != null && !status.isDriving) {
-            item(key = "card-${pending.trip.id}") { TripCard(pending.trip, actions) }
+            item(key = "card-${pending.trip.id}") { TripCard(pending.trip, voice, actions) }
         }
         item { TripHeader() }
         if (records.isEmpty()) {
@@ -189,14 +192,18 @@ private fun SummaryItem(label: String, value: String, color: Color = Color.Unspe
     }
 }
 
-/** 운행 종료 후 정차 상태에서 띄우는 분류 확인 카드 */
+/**
+ * 운행 종료 후 정차 상태에서 띄우는 분류 확인 카드.
+ * 음성 응답이 들어오면 modeBy가 바뀌므로 그 값을 키로 다시 채운다 (확정은 사용자가 누른다).
+ * voice == null 이면 음성 꺼짐.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TripCard(trip: Trip, actions: HomeActions) {
-    var mode by remember(trip.id) { mutableStateOf(trip.mode) }
-    var modeBy by remember(trip.id) { mutableStateOf(trip.modeBy) }
-    var purpose by remember(trip.id) { mutableStateOf(trip.purpose) }
-    var visit by remember(trip.id) { mutableStateOf(trip.visitPlace) }
+private fun TripCard(trip: Trip, voice: VoicePhase?, actions: HomeActions) {
+    var mode by remember(trip.id, trip.modeBy) { mutableStateOf(trip.mode) }
+    var modeBy by remember(trip.id, trip.modeBy) { mutableStateOf(trip.modeBy) }
+    var purpose by remember(trip.id, trip.modeBy) { mutableStateOf(trip.purpose) }
+    var visit by remember(trip.id, trip.modeBy) { mutableStateOf(trip.visitPlace) }
     fun save() = mode?.let { actions.classify(trip, it, modeBy, purpose, visit) }
 
     Card(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
@@ -206,6 +213,7 @@ private fun TripCard(trip: Trip, actions: HomeActions) {
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
             )
+            if (voice != null) VoiceLine(voice) { actions.askVoice(trip) }
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -263,6 +271,22 @@ private fun TripCard(trip: Trip, actions: HomeActions) {
                 }
                 if (purpose.isBlank()) Text("업무 운행은 목적을 입력해야 확정할 수 있습니다", fontSize = 18.sp, color = Warn)
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceLine(phase: VoicePhase, onAsk: () -> Unit) {
+    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        val (text, color) = when (phase) {
+            is VoicePhase.Speaking -> "음성 안내 중: ${phase.text}" to Accent
+            is VoicePhase.Listening -> "듣는 중… ${phase.partial}" to Accent
+            is VoicePhase.Heard -> "인식: “${phase.text}”" to Muted
+            VoicePhase.Idle -> "음성으로 답하면 아래 칸이 채워집니다 (예: 거래처 미팅, 개인 용무, 퇴근)" to Muted
+        }
+        Text(text, fontSize = 20.sp, color = color, modifier = Modifier.weight(1f))
+        if (phase == VoicePhase.Idle || phase is VoicePhase.Heard) {
+            OutlinedButton(onClick = onAsk) { Text("음성으로 답하기", fontSize = 20.sp) }
         }
     }
 }
@@ -413,6 +437,8 @@ fun SettingsScreen(
     places: List<Place>,
     message: String?,
     profile: LedgerProfile,
+    voiceEnabled: Boolean,
+    onVoiceEnabled: (Boolean) -> Unit,
     onRegister: (PlaceKind) -> Unit,
     onSaveProfile: (LedgerProfile) -> Unit,
     onBack: () -> Unit,
@@ -424,6 +450,20 @@ fun SettingsScreen(
             Text("설정", fontSize = 32.sp, fontWeight = FontWeight.Bold)
         }
         ProfileForm(profile, onSaveProfile)
+        Row(Modifier.fillMaxWidth().padding(top = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("음성 안내", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "운행 시작 시 짧게 알리고, 정차(P) 후 분류·목적을 묻습니다. 답하지 않거나 인식하지 못하면 화면 카드로 입력합니다. 음성은 차 안에서만 처리합니다(ON_DEVICE).",
+                    fontSize = 19.sp,
+                    color = Muted,
+                )
+            }
+            Spacer(Modifier.width(24.dp))
+            Text(if (voiceEnabled) "켜짐" else "꺼짐", fontSize = 22.sp, color = if (voiceEnabled) Accent else Muted)
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = voiceEnabled, onCheckedChange = onVoiceEnabled)
+        }
         Text("장소", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
         Text(
             "자택·회사를 등록하면 영역 진입·이탈(FusedLocation 영역 알림)로 출퇴근을 자동 제안합니다. 개인 운행은 위치를 저장하지 않습니다.",
