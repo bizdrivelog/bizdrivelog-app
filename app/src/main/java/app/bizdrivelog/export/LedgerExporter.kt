@@ -60,16 +60,27 @@ data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
     val ratioPercent: Double get() = if (totalKm > 0) Math.round(businessUseKm / totalKm * 1000) / 10.0 else 0.0
 }
 
-/** anomalies: 기간 안의 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외) */
-class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: List<LedgerRow>, val anomalies: List<TripRecord> = emptyList()) {
+/**
+ * rows·합계는 확정 운행만 (확정 기록만 제출한다). 정정이 있으면 정정 반영값.
+ * pending: 기간 안의 미확정 운행 (rows·합계에서 제외, 화면에 따로 표시)
+ * anomalies: 기간 안의 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외)
+ */
+class Ledger(
+    val profile: LedgerProfile,
+    val period: LedgerPeriod,
+    val rows: List<LedgerRow>,
+    val anomalies: List<TripRecord> = emptyList(),
+    val pending: List<TripRecord> = emptyList(),
+) {
     val totals = LedgerTotals(round1(rows.sumOf { it.distanceKm }), round1(rows.sumOf { (it.commuteKm ?: 0.0) + (it.businessKm ?: 0.0) }))
     val corrections = rows.flatMap { it.record.corrections }
-    val unconfirmed = rows.count { !it.record.trip.isConfirmed }
+    val pendingKm = round1(pending.sumOf { it.trip.distanceKm ?: 0.0 })
 
     companion object {
         fun build(records: List<TripRecord>, profile: LedgerProfile, period: LedgerPeriod, zone: ZoneId = ZoneId.systemDefault()): Ledger {
+            fun inPeriod(record: TripRecord) = Instant.ofEpochMilli(record.trip.startedAt).atZone(zone).toLocalDate() in period
             val rows = records
-                .filter { it.trip.endedAt != null && it.trip.distanceKm != null }
+                .filter { it.trip.endedAt != null && it.trip.isConfirmed && it.trip.distanceKm != null }
                 .map { it to Instant.ofEpochMilli(it.trip.startedAt).atZone(zone).toLocalDate() }
                 .filter { (_, date) -> date in period }
                 .sortedBy { (record, _) -> record.trip.startedAt }
@@ -86,10 +97,9 @@ class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: Lis
                         remark = remarkOf(record),
                     )
                 }
-            val anomalies = records.filter {
-                it.trip.odometerAnomaly && Instant.ofEpochMilli(it.trip.startedAt).atZone(zone).toLocalDate() in period
-            }
-            return Ledger(profile, period, rows, anomalies)
+            val anomalies = records.filter { it.trip.odometerAnomaly && inPeriod(it) }
+            val pending = records.filter { it.trip.endedAt != null && !it.trip.isConfirmed && inPeriod(it) }
+            return Ledger(profile, period, rows, anomalies, pending)
         }
 
         /** ⑩ 비고: [구분] 업무 목적 · 방문처 (정정 n건) */
@@ -98,7 +108,6 @@ class Ledger(val profile: LedgerProfile, val period: LedgerPeriod, val rows: Lis
             val detail = listOf(record.effectivePurpose, record.effectiveVisitPlace).filter { it.isNotBlank() }.joinToString(" · ")
             if (detail.isNotEmpty()) append(" $detail")
             if (record.corrections.isNotEmpty()) append(" (정정 ${record.corrections.size}건)")
-            if (!record.trip.isConfirmed) append(" (미확정)")
         }
     }
 }
@@ -200,8 +209,8 @@ object LedgerExporter {
             add("A$foot", "※ 정정 ${ledger.corrections.size}건 반영값입니다. 원본 값과 정정 내역은 '정정 이력' 시트를 참조하세요.", Style.NOTE)
             foot++
         }
-        if (ledger.unconfirmed > 0) {
-            add("A$foot", "※ 미확정 운행 ${ledger.unconfirmed}건이 포함되어 있습니다 (⑩비고에 '미확정' 표시).", Style.NOTE)
+        if (ledger.pending.isNotEmpty()) {
+            add("A$foot", "※ 미확정 운행 ${ledger.pending.size}건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다.", Style.NOTE)
             foot++
         }
         add("A$foot", "검증 코드: ${verifyCode(ledger)}  (원본 대조용 · 이 파일에 담긴 운행·정정 이력의 SHA-256)", Style.NOTE)

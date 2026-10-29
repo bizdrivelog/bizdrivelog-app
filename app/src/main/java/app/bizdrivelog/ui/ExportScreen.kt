@@ -74,11 +74,12 @@ fun ExportScreen(
         ) {
             Text("과세기간 칸: ${ledger.period.formText}", style = Type.BodyM)
             Text(
-                "운행 ${ledger.rows.size}건" + (if (ledger.unconfirmed > 0) " (미확정 ${ledger.unconfirmed}건 포함)" else "") +
-                    " · 정정 ${ledger.corrections.size}건",
+                "확정 운행 ${ledger.rows.size}건 · 정정 ${ledger.corrections.size}건",
                 style = Type.BodyM,
-                color = if (ledger.unconfirmed > 0) Palette.Pending else Palette.Text,
             )
+            if (ledger.pending.isNotEmpty()) {
+                Text("미확정 ${ledger.pending.size}건 · ${formatKm(ledger.pendingKm)}은 제외 (확정하면 포함)", style = Type.BodyS, color = Palette.Pending)
+            }
             if (ledger.anomalies.isNotEmpty()) {
                 Text("$ODOMETER_ANOMALY ${ledger.anomalies.size}건 제외 (종료 누적거리가 시작보다 작음)", style = Type.BodyS, color = Palette.Pending)
             }

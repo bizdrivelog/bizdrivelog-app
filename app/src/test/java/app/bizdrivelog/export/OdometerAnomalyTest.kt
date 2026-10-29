@@ -20,7 +20,7 @@ class OdometerAnomalyTest {
 
     private fun trip(id: Long, start: Double, end: Double?, mode: TripMode = TripMode.BUSINESS): Trip {
         val at = day.atTime(9, 0).atZone(zone).toInstant().toEpochMilli() + id * 3_600_000
-        return Trip(id = id, startedAt = at, startOdometerKm = start, endedAt = end?.let { at + 600_000 }, endOdometerKm = end, mode = mode)
+        return Trip(id = id, startedAt = at, startOdometerKm = start, endedAt = end?.let { at + 600_000 }, endOdometerKm = end, mode = mode, confirmedAt = end?.let { at + 700_000 })
     }
 
     private fun build(vararg trips: Trip) = Ledger.build(trips.map { TripRecord(it, emptyList()) }, LedgerProfile(), period, zone)

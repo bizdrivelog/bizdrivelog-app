@@ -157,9 +157,18 @@ fun DetailScreen(record: TripRecord, onBack: () -> Unit, onCorrect: (TripRecord,
             )
         }
         Panel {
+            // 현재 구분(정정 반영)을 크게, 정정됐으면 원본은 작게 아래에
+            val current = record.effectiveMode
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("구분 (원본)", style = Type.Label, color = Palette.TextSub, modifier = Modifier.width(240.dp))
-                ModeTag(trip.mode)
+                Text("현재 구분", style = Type.Label, color = Palette.TextSub, modifier = Modifier.width(240.dp))
+                Text(
+                    (current?.label ?: "미분류") + if (record.corrections.isNotEmpty()) " (정정됨)" else "",
+                    style = Type.TitleM,
+                    color = current?.color ?: Palette.Pending,
+                )
+            }
+            if (current != trip.mode) {
+                Text("원본: ${trip.mode?.label ?: "미분류"}", style = Type.BodyS, color = Palette.TextSub, modifier = Modifier.padding(start = 240.dp))
             }
             InfoRow("목적" to trip.purpose.ifBlank { "-" }, "방문처" to trip.visitPlace.ifBlank { "-" })
             InfoRow("분류 근거" to trip.modeBy.ifBlank { "-" }, "확정" to (trip.confirmedAt?.let { DATE_TIME.format(Date(it)) } ?: "미확정"))

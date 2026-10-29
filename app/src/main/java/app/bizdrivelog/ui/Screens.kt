@@ -206,7 +206,7 @@ private fun MonthSummary(records: List<TripRecord>) {
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Text("${month.year}년 ${month.monthValue}월 업무 사용 비율", style = Type.BodyM, color = Palette.TextSub)
+                Text("${month.year}년 ${month.monthValue}월 업무 사용 비율 (확정 운행)", style = Type.BodyM, color = Palette.TextSub)
                 Text(String.format(Locale.KOREA, "%.1f%%", totals.ratioPercent), fontSize = 64.sp, lineHeight = 72.sp, fontWeight = FontWeight.ExtraBold)
             }
             SummaryValue("총 주행거리", formatKm(totals.totalKm))
@@ -221,10 +221,15 @@ private fun MonthSummary(records: List<TripRecord>) {
                 .forEach { (mode, km) -> Box(Modifier.weight(km.toFloat()).fillMaxHeight().background(mode.color)) }
         }
         Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(48.dp), verticalAlignment = Alignment.CenterVertically) {
             Legend(TripMode.BUSINESS, business)
             Legend(TripMode.COMMUTE, commute)
             Legend(TripMode.PERSONAL, personal)
+            Spacer(Modifier.weight(1f))
+            // 집계는 확정 운행만. 미확정은 따로
+            if (ledger.pending.isNotEmpty()) {
+                Text("미확정 ${ledger.pending.size}건 · ${formatKm(ledger.pendingKm)} (집계 제외)", style = Type.BodyS, color = Palette.Pending)
+            }
         }
     }
 }
@@ -268,7 +273,7 @@ private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
             Text(timeRange(trip), style = Type.BodyS, color = Palette.TextSub)
         }
         Column(Modifier.weight(1f).padding(end = 24.dp)) {
-            Text(routeText(trip, record), style = Type.BodyL.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (hasNoLocation(trip)) "구간 없음" else routeText(trip, record), style = Type.BodyL.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             subLine(record)?.let { Text(it, style = Type.BodyS, color = Palette.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
         Text(
@@ -278,18 +283,19 @@ private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
             textAlign = TextAlign.End,
             modifier = Modifier.width(220.dp),
         )
-        Box(Modifier.width(150.dp), contentAlignment = Alignment.Center) { if (trip.endedAt != null) ModeTag(mode) }
+        Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (trip.endedAt != null) ModeTag(mode)
+            // 정정된 운행: 칩은 정정 값, 아래에 표시
+            if (record.corrections.isNotEmpty()) Text("정정됨", style = Type.Label, color = Palette.TextSub)
+        }
         Box(Modifier.width(130.dp), contentAlignment = Alignment.CenterEnd) { if (trip.endedAt != null) ConfirmState(trip.isConfirmed) }
     }
 }
 
-private fun subLine(record: TripRecord): String? {
-    val parts = buildList {
-        if (record.effectiveMode == TripMode.PERSONAL) add("업무사용비율 제외 · 거리만 기록")
-        else record.effectivePurpose.takeIf { it.isNotBlank() }?.let(::add)
-        if (record.corrections.isNotEmpty()) add("정정 ${record.corrections.size}건")
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+private fun subLine(record: TripRecord): String? = when {
+    record.effectiveMode == TripMode.PERSONAL -> "개인 운행 · 위치 미저장"
+    hasNoLocation(record.trip) -> "위치 미저장 (원본 개인 운행)"
+    else -> record.effectivePurpose.takeIf { it.isNotBlank() }
 }
 
 @Composable
@@ -415,7 +421,7 @@ fun routeText(trip: Trip, record: TripRecord? = null): String {
     val mode = record?.effectiveMode ?: trip.mode
     val visit = (record?.effectiveVisitPlace ?: trip.visitPlace).takeIf { mode == TripMode.BUSINESS && it.isNotBlank() }
     // 개인 운행으로 끝난 운행은 위치가 없다 (나중에 정정으로 분류가 바뀌어도)
-    if (trip.mode == TripMode.PERSONAL && trip.startLat == null && trip.fromPlace == null && trip.toPlace == null) return "위치 미저장"
+    if (hasNoLocation(trip)) return "위치 미저장"
     val from = trip.fromPlace?.label
     if (trip.endedAt == null) return "${from ?: "출발지"} →"
     val to = trip.toPlace?.label
@@ -425,6 +431,10 @@ fun routeText(trip: Trip, record: TripRecord? = null): String {
 }
 
 private const val OTHER_PLACE = "기타 장소"
+
+/** 개인 운행으로 끝나 위치가 없는 운행 (나중에 정정으로 분류가 바뀌어도) */
+internal fun hasNoLocation(trip: Trip) =
+    trip.mode == TripMode.PERSONAL && trip.startLat == null && trip.fromPlace == null && trip.toPlace == null
 
 internal fun timeRange(trip: Trip) = TIME.format(Date(trip.startedAt)) + (trip.endedAt?.let { "–" + TIME.format(Date(it)) } ?: "")
 
