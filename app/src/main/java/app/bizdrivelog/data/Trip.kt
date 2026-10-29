@@ -33,6 +33,9 @@ data class Trip(
     val purpose: String = "",
     val visitPlace: String = "",
     val confirmedAt: Long? = null,
+    /** ④ 사용자(차량 이용자) — 운행 시작 시점 설정값을 남겨 나중에 설정을 바꿔도 기록이 바뀌지 않게 한다 */
+    val userDept: String? = null,
+    val userName: String? = null,
 ) {
     /** 계기판 값이 0.1km 단위라 소수 첫째 자리로 맞춘다 (12353.4 - 12351.0 = 2.3999…) */
     val distanceKm: Double? get() = endOdometerKm?.let { Math.round((it - startOdometerKm) * 10) / 10.0 }

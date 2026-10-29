@@ -40,6 +40,9 @@ dependencies {
     implementation("ai.pleos.playground:Vehicle:2.3.2")
     implementation("ai.pleos.playground:FusedLocation:1.1.3")
 
+    // xlsx 생성 (Apache POI 대신 가벼운 쓰기 전용 라이브러리)
+    implementation("org.dhatim:fastexcel:0.18.4")
+
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")

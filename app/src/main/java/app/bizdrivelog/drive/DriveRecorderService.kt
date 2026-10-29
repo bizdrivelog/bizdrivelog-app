@@ -30,6 +30,7 @@ import app.bizdrivelog.R
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceDao
 import app.bizdrivelog.data.PlaceKind
+import app.bizdrivelog.data.ProfileStore
 import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripDao
 import app.bizdrivelog.data.TripMode
@@ -214,6 +215,7 @@ class DriveRecorderService : LifecycleService() {
     private suspend fun startTrip() {
         val odometer = currentOdometer() ?: run { Log.e(TAG, "trip start skipped: no odometer"); return }
         val location = readLocation()
+        val profile = ProfileStore(this).load()
         // 시작 좌표는 종료 시 분류에 필요해서 일단 저장하고, 개인 운행으로 끝나면 지운다
         val trip = Trip(
             startedAt = System.currentTimeMillis(),
@@ -221,6 +223,8 @@ class DriveRecorderService : LifecycleService() {
             startLat = location?.latitude,
             startLng = location?.longitude,
             fromPlace = placeAt(location, "start"),
+            userDept = profile.dept,
+            userName = profile.userName,
         )
         tripDao.insert(trip)
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = odometer) }

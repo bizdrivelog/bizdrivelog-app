@@ -6,12 +6,14 @@ import ai.pleos.playground.location.fused.model.LocationData
 import android.car.Car
 import android.car.drivingstate.CarUxRestrictions
 import android.car.drivingstate.CarUxRestrictionsManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.core.content.FileProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,13 +22,20 @@ import androidx.lifecycle.lifecycleScope
 import app.bizdrivelog.BizDriveLogApp
 import app.bizdrivelog.data.Correction
 import app.bizdrivelog.data.CorrectionField
+import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
+import app.bizdrivelog.data.ProfileStore
 import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.drive.DriveRecorderService
 import app.bizdrivelog.drive.DriveState
+import app.bizdrivelog.export.Ledger
+import app.bizdrivelog.export.LedgerExporter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -39,14 +48,20 @@ class MainActivity : ComponentActivity() {
 
     /** 주행 규제 중이면 최소 화면만 그린다 (Pleos 주행 규제 개발 가이드: DO 선언 앱은 CarUxRestrictions를 직접 확인) */
     private var restricted by mutableStateOf(false)
-    private var showSettings by mutableStateOf(false)
+    private enum class Screen { HOME, SETTINGS, EXPORT }
+
+    private var screen by mutableStateOf(Screen.HOME)
     private var settingsMessage by mutableStateOf<String?>(null)
+    private val profileStore by lazy { ProfileStore(this) }
+    private var profile by mutableStateOf(LedgerProfile())
+    private var exportState by mutableStateOf(ExportState())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DriveRecorderService.start(this)
         connectUxRestrictions()
         requestLocationPermission()
+        profile = profileStore.load()
         fusedLocation = runCatching { FusedLocation(applicationContext).also { it.initialize() } }.getOrNull()
 
         val tripDao = database.tripDao()
@@ -60,15 +75,25 @@ class MainActivity : ComponentActivity() {
             val status by DriveState.status.collectAsStateWithLifecycle()
             val recordList by records.collectAsStateWithLifecycle(initialValue = emptyList())
             val placeList by places.collectAsStateWithLifecycle(initialValue = emptyList())
-            BackHandler(enabled = showSettings) { showSettings = false }
+            BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
             BizDriveLogTheme {
                 when {
                     restricted -> DrivingScreen(status)
-                    showSettings -> SettingsScreen(
+                    screen == Screen.SETTINGS -> SettingsScreen(
                         places = placeList,
                         message = settingsMessage,
+                        profile = profile,
                         onRegister = ::registerCurrentLocation,
-                        onBack = { showSettings = false },
+                        onSaveProfile = { profileStore.save(it); profile = profileStore.load(); settingsMessage = "머리 정보를 저장했습니다" },
+                        onBack = { screen = Screen.HOME },
+                    )
+                    screen == Screen.EXPORT -> ExportScreen(
+                        records = recordList,
+                        profile = profile,
+                        state = exportState,
+                        onExport = ::export,
+                        onShare = ::share,
+                        onBack = { screen = Screen.HOME },
                     )
                     else -> HomeScreen(
                         status = status,
@@ -77,7 +102,8 @@ class MainActivity : ComponentActivity() {
                             classify = ::classify,
                             confirm = ::confirm,
                             correct = ::correct,
-                            openSettings = { settingsMessage = null; showSettings = true },
+                            openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
+                            openExport = { exportState = ExportState(); screen = Screen.EXPORT },
                         ),
                     )
                 }
@@ -115,6 +141,39 @@ class MainActivity : ComponentActivity() {
             }
         )
         Log.i(TAG, "trip ${record.trip.id} corrected: ${changes.map { it.first }} reason=$reason")
+    }
+
+    /** 앱 전용 저장소(files/exports)에 xlsx를 만든다 */
+    private fun export(ledger: Ledger) {
+        lifecycleScope.launch {
+            runCatching { withContext(Dispatchers.IO) { LedgerExporter.write(ledger, File(filesDir, "exports")) } }
+                .onSuccess { file ->
+                    exportState = ExportState(file = file)
+                    Log.i(TAG, "exported ${file.absolutePath} rows=${ledger.rows.size} total=${ledger.totals.totalKm} biz=${ledger.totals.businessUseKm} ratio=${ledger.totals.ratioPercent}")
+                }
+                .onFailure {
+                    Log.e(TAG, "export failed", it)
+                    exportState = ExportState(message = "엑셀 파일을 만들지 못했습니다 (${it.message})")
+                }
+        }
+    }
+
+    /** 안드로이드 공유(ACTION_SEND). 받을 앱이 없으면 그 사실만 알린다 */
+    private fun share(file: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val send = Intent(Intent.ACTION_SEND)
+            .setType(XLSX_MIME)
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, file.nameWithoutExtension)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val handlers = packageManager.queryIntentActivities(send, 0)
+        Log.i(TAG, "share handlers=${handlers.size} ${handlers.map { it.activityInfo.packageName }}")
+        if (handlers.isEmpty()) {
+            exportState = exportState.copy(message = "이 차량에는 파일을 받을 앱이 없습니다 (ACTION_SEND 처리 앱 0개)")
+            return
+        }
+        runCatching { startActivity(Intent.createChooser(send, "운행기록부 보내기")) }
+            .onFailure { exportState = exportState.copy(message = "보내기 화면을 열지 못했습니다 (${it.message})") }
     }
 
     private fun registerCurrentLocation(kind: PlaceKind) {
@@ -169,6 +228,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "BizDriveLog"
+        private const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         private const val FUSED_LOCATION = "pleos.car.permission.FUSED_LOCATION"
     }
 }

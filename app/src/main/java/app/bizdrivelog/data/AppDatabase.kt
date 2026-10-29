@@ -4,9 +4,10 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Trip::class, Place::class, Correction::class], version = 2)
+@Database(entities = [Trip::class, Place::class, Correction::class], version = 3)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun tripDao(): TripDao
     abstract fun placeDao(): PlaceDao
@@ -15,9 +16,18 @@ abstract class AppDatabase : RoomDatabase() {
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "bizdrivelog.db")
                 // 출시 전이라 스키마가 바뀌면 개발용으로 초기화한다. 출시 후에는 Migration으로 바꿀 것
+                .addMigrations(MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .addCallback(LockTriggers)
                 .build()
+    }
+}
+
+/** v3: ④ 사용자 스냅샷 열 추가 (기존 2단계 기록 유지) */
+private val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE trips ADD COLUMN userDept TEXT")
+        db.execSQL("ALTER TABLE trips ADD COLUMN userName TEXT")
     }
 }
 

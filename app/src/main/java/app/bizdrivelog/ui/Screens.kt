@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.bizdrivelog.data.Correction
+import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
 import app.bizdrivelog.data.Trip
@@ -53,17 +55,18 @@ import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.data.displayValue
 import app.bizdrivelog.drive.DriveStatus
+import app.bizdrivelog.export.Ledger
+import app.bizdrivelog.export.LedgerPeriod
+import app.bizdrivelog.export.LedgerPeriodKind
 import java.text.SimpleDateFormat
-import java.time.Instant
 import java.time.YearMonth
-import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 
-private val DrivingGreen = Color(0xFF4CD787)
-private val Muted = Color(0xFFA0A4AB)
-private val Accent = Color(0xFF36D1F0)
-private val Warn = Color(0xFFF6B93B)
+internal val DrivingGreen = Color(0xFF4CD787)
+internal val Muted = Color(0xFFA0A4AB)
+internal val Accent = Color(0xFF36D1F0)
+internal val Warn = Color(0xFFF6B93B)
 
 private val PURPOSE_PRESETS = listOf("거래처 방문", "회의", "납품·배송", "출장", "교육·행사")
 private val REASON_PRESETS = listOf("비고 누락 보완", "운행 모드 오분류", "목적 입력 오류")
@@ -73,6 +76,7 @@ class HomeActions(
     val confirm: (Trip) -> Unit,
     val correct: (record: TripRecord, mode: TripMode, purpose: String, visitPlace: String, reason: String) -> Unit,
     val openSettings: () -> Unit,
+    val openExport: () -> Unit,
 )
 
 @Composable
@@ -106,7 +110,7 @@ fun HomeScreen(status: DriveStatus, records: List<TripRecord>, actions: HomeActi
         ?: records.firstOrNull { !it.trip.isConfirmed && it.trip.endedAt != null }
 
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp)) {
-        item { StatusBar(status, actions.openSettings) }
+        item { StatusBar(status, actions.openSettings, actions.openExport) }
         item { MonthSummary(records) }
         // 분류 확인 카드는 정차 중에만 (운행 중이면 아직 종료 전이라 카드 대상이 없음)
         if (pending != null && !status.isDriving) {
@@ -138,7 +142,7 @@ fun HomeScreen(status: DriveStatus, records: List<TripRecord>, actions: HomeActi
 }
 
 @Composable
-private fun StatusBar(status: DriveStatus, onSettings: () -> Unit) {
+private fun StatusBar(status: DriveStatus, onSettings: () -> Unit, onExport: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             if (status.isDriving) "운행 중" else "주차",
@@ -150,21 +154,22 @@ private fun StatusBar(status: DriveStatus, onSettings: () -> Unit) {
         Text("계기판 누적거리  ", fontSize = 22.sp, color = Muted)
         Text(status.odometerKm?.let { formatKm(it) } ?: "-", fontSize = 32.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
-        OutlinedButton(onClick = onSettings) { Text("장소 설정", fontSize = 20.sp) }
+        Button(onClick = onExport) { Text("운행기록부 내보내기", fontSize = 20.sp) }
+        Spacer(Modifier.width(12.dp))
+        OutlinedButton(onClick = onSettings) { Text("설정", fontSize = 20.sp) }
     }
 }
 
 /** 이번 달 요약. 업무용 사용거리 = 출퇴근 + 업무 (법인세법 시행규칙 제27조의2 ⑦). 정정 반영값으로 집계. */
 @Composable
 private fun MonthSummary(records: List<TripRecord>) {
-    val zone = ZoneId.systemDefault()
-    val month = YearMonth.now(zone)
-    val done = records.filter {
-        it.trip.endedAt != null && YearMonth.from(Instant.ofEpochMilli(it.trip.startedAt).atZone(zone)) == month
-    }
-    val total = round1(done.sumOf { it.trip.distanceKm ?: 0.0 })
-    val business = round1(done.sumOf { it.businessUseKm })
-    val ratio = if (total > 0) Math.round(business / total * 1000) / 10.0 else 0.0
+    // 엑셀 ⑪⑫⑬과 같은 계산을 쓴다
+    val period = LedgerPeriod.of(LedgerPeriodKind.THIS_MONTH)
+    val totals = Ledger.build(records, LedgerProfile(), period).totals
+    val month = YearMonth.from(period.start)
+    val total = totals.totalKm
+    val business = totals.businessUseKm
+    val ratio = totals.ratioPercent
     Card(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${month.year}년 ${month.monthValue}월", fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -404,13 +409,22 @@ private fun CorrectionDialog(
 }
 
 @Composable
-fun SettingsScreen(places: List<Place>, message: String?, onRegister: (PlaceKind) -> Unit, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp)) {
+fun SettingsScreen(
+    places: List<Place>,
+    message: String?,
+    profile: LedgerProfile,
+    onRegister: (PlaceKind) -> Unit,
+    onSaveProfile: (LedgerProfile) -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp).verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← 운행기록", fontSize = 22.sp) }
             Spacer(Modifier.width(16.dp))
-            Text("장소 설정", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            Text("설정", fontSize = 32.sp, fontWeight = FontWeight.Bold)
         }
+        ProfileForm(profile, onSaveProfile)
+        Text("장소", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
         Text(
             "자택·회사를 등록하면 영역 진입·이탈(FusedLocation 영역 알림)로 출퇴근을 자동 제안합니다. 개인 운행은 위치를 저장하지 않습니다.",
             fontSize = 20.sp,
@@ -437,6 +451,35 @@ fun SettingsScreen(places: List<Place>, message: String?, onRegister: (PlaceKind
     }
 }
 
+/** 운행기록부 머리 정보 (국세청 별지 서식 상단·①②·④) */
+@Composable
+private fun ProfileForm(saved: LedgerProfile, onSave: (LedgerProfile) -> Unit) {
+    var p by remember(saved) { mutableStateOf(saved) }
+    Text("운행기록부 머리 정보", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
+    Text("④ 사용자는 운전자가 아니라 차량 이용자(부서·성명)입니다. 차종은 차량 정보로 확인되지 않아 직접 입력합니다.", fontSize = 19.sp, color = Muted)
+    @Composable
+    fun RowScope.Field(label: String, value: String, onChange: (String) -> Unit) = OutlinedTextField(
+        value, onChange, label = { Text(label) }, textStyle = TextStyle(fontSize = 22.sp), singleLine = true, modifier = Modifier.weight(1f),
+    )
+    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Field("상호(법인명)", p.company) { p = p.copy(company = it) }
+        Field("사업자등록번호", p.bizNo) { p = p.copy(bizNo = it) }
+    }
+    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Field("①차종", p.carModel) { p = p.copy(carModel = it) }
+        Field("②자동차등록번호", p.plate) { p = p.copy(plate = it) }
+    }
+    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Field("④사용자 부서", p.dept) { p = p.copy(dept = it) }
+        Field("④사용자 성명", p.userName) { p = p.copy(userName = it) }
+    }
+    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(onClick = { onSave(p) }, enabled = p != saved, modifier = Modifier.height(56.dp)) { Text("머리 정보 저장", fontSize = 22.sp) }
+        Spacer(Modifier.width(16.dp))
+        if (saved.missing.isNotEmpty()) Text("미입력: ${saved.missing.joinToString(", ")}", fontSize = 19.sp, color = Warn)
+    }
+}
+
 private fun routeText(trip: Trip): String = when {
     trip.mode == TripMode.PERSONAL && trip.startLat == null -> "위치 미저장"
     trip.endedAt == null -> "${trip.fromPlace?.label ?: "기타 위치"} →"
@@ -445,9 +488,7 @@ private fun routeText(trip: Trip): String = when {
 
 private fun timeRange(trip: Trip) = TIME.format(Date(trip.startedAt)) + (trip.endedAt?.let { "–" + TIME.format(Date(it)) } ?: "")
 
-private fun round1(km: Double) = Math.round(km * 10) / 10.0
-
-private fun formatKm(km: Double) = String.format(Locale.KOREA, "%,.1f km", km)
+internal fun formatKm(km: Double) = String.format(Locale.KOREA, "%,.1f km", km)
 
 private val DATE = SimpleDateFormat("yyyy-MM-dd (E)", Locale.KOREA)
 private val DATE_SHORT = SimpleDateFormat("M/d (E)", Locale.KOREA)
