@@ -12,11 +12,13 @@ object TripClassifier {
 
     data class Suggestion(val mode: TripMode, val reason: String, val purpose: String = "")
 
-    fun suggest(startedAt: Long, from: PlaceKind?, to: PlaceKind?, zone: ZoneId = ZoneId.systemDefault()): Suggestion {
+    /** startKnown = false: 출발 위치를 모름(운행 중 앱 재시작). 출퇴근·개인을 판단하지 않고 업무로 제안한다 */
+    fun suggest(startedAt: Long, from: PlaceKind?, to: PlaceKind?, zone: ZoneId = ZoneId.systemDefault(), startKnown: Boolean = true): Suggestion {
         val date = Instant.ofEpochMilli(startedAt).atZone(zone).toLocalDate()
         val dayOff = dayOffName(date)
         return when {
             dayOff != null -> Suggestion(TripMode.PERSONAL, "$dayOff 운행")
+            !startKnown -> Suggestion(TripMode.BUSINESS, "평일 · 출발 위치 없음 (앱 재시작)")
             from == PlaceKind.HOME && to == PlaceKind.OFFICE ->
                 Suggestion(TripMode.COMMUTE, "자택 영역 이탈 → 회사 영역 진입", "출근")
             from == PlaceKind.OFFICE && to == PlaceKind.HOME ->

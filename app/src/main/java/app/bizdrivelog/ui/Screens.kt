@@ -1,12 +1,17 @@
 package app.bizdrivelog.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,22 +21,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,22 +34,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import app.bizdrivelog.data.Correction
 import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
 import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
-import app.bizdrivelog.data.displayValue
 import app.bizdrivelog.drive.DriveStatus
 import app.bizdrivelog.export.Ledger
 import app.bizdrivelog.export.LedgerPeriod
@@ -65,29 +57,21 @@ import java.time.YearMonth
 import java.util.Date
 import java.util.Locale
 
-internal val DrivingGreen = Color(0xFF4CD787)
-internal val Muted = Color(0xFFA0A4AB)
-internal val Accent = Color(0xFF36D1F0)
-internal val Warn = Color(0xFFF6B93B)
-
-private val PURPOSE_PRESETS = listOf("거래처 방문", "회의", "납품·배송", "출장", "교육·행사")
-private val REASON_PRESETS = listOf("비고 누락 보완", "운행 모드 오분류", "목적 입력 오류")
+const val APP_NAME = "비즈드라이브로그"
 
 class HomeActions(
     val classify: (trip: Trip, mode: TripMode, modeBy: String, purpose: String, visitPlace: String) -> Unit,
     val confirm: (Trip) -> Unit,
     val correct: (record: TripRecord, mode: TripMode, purpose: String, visitPlace: String, reason: String) -> Unit,
     val askVoice: (Trip) -> Unit,
+    val openReview: (tripId: Long) -> Unit,
+    val openDetail: (tripId: Long) -> Unit,
     val openSettings: () -> Unit,
     val openExport: () -> Unit,
 )
 
-@Composable
-fun BizDriveLogTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = darkColorScheme()) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
-    }
-}
+/** 확인(분류·확정)할 운행: 끝났지만 확정 안 된 운행, 최근 순 */
+fun List<TripRecord>.pending(): List<TripRecord> = filter { !it.trip.isConfirmed && it.trip.endedAt != null }
 
 /** 주행 중 최소 화면: 운행 중 표시와 이번 운행 주행거리만. 입력 UI 없음. */
 @Composable
@@ -97,70 +81,112 @@ fun DrivingScreen(status: DriveStatus) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("운행 중", fontSize = 56.sp, fontWeight = FontWeight.Bold, color = DrivingGreen)
+        Text("운행 중", style = Type.TitleL)
         Spacer(Modifier.height(24.dp))
-        Text(status.tripDistanceKm?.let { formatKm(it) } ?: "-", fontSize = 96.sp, fontWeight = FontWeight.Bold)
+        Text(status.tripDistanceKm?.let { formatKm(it) } ?: "-", fontSize = 120.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(24.dp))
-        Text("주행 중에는 조작 없이 기록만 합니다 · 확인은 정차(P) 후", fontSize = 22.sp, color = Muted)
+        Text("주행 중에는 조작 없이 기록만 합니다 · 확인은 정차(P) 후", style = Type.BodyM, color = Palette.TextSub)
     }
 }
 
 @Composable
 fun HomeScreen(status: DriveStatus, records: List<TripRecord>, voice: VoicePhase?, actions: HomeActions) {
-    var selectedId by remember { mutableStateOf<Long?>(null) }
-    var correcting by remember { mutableStateOf<TripRecord?>(null) }
-    val pending = records.firstOrNull { it.trip.id == selectedId && !it.trip.isConfirmed && it.trip.endedAt != null }
-        ?: records.firstOrNull { !it.trip.isConfirmed && it.trip.endedAt != null }
-
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp)) {
-        item { StatusBar(status, actions.openSettings, actions.openExport) }
-        item { MonthSummary(records) }
-        // 분류 확인 카드는 정차 중에만 (운행 중이면 아직 종료 전이라 카드 대상이 없음)
-        if (pending != null && !status.isDriving) {
-            item(key = "card-${pending.trip.id}") { TripCard(pending.trip, voice, actions) }
+    val pending = records.pending()
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = Dim.Gutter),
+        contentPadding = PaddingValues(vertical = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        item { TopBar(status, actions) }
+        // 확인할 운행은 정차 중에만 (운행 중이면 입력 UI를 띄우지 않는다)
+        if (pending.isNotEmpty() && !status.isDriving) {
+            item(key = "pending") { PendingBanner(pending, voice) { actions.openReview(pending.first().trip.id) } }
         }
-        item { TripHeader() }
+        item { MonthSummary(records) }
+        item { Text("운행 기록", style = Type.TitleS, modifier = Modifier.padding(top = 12.dp)) }
         if (records.isEmpty()) {
-            item { Text("운행 기록이 없습니다. 시동을 걸면(기어 D) 자동으로 기록이 시작됩니다.", fontSize = 22.sp, color = Muted, modifier = Modifier.padding(top = 20.dp)) }
+            item { Text("운행 기록이 없습니다. 시동을 걸면(기어 D) 자동으로 기록이 시작됩니다.", style = Type.BodyM, color = Palette.TextSub) }
         }
         items(records, key = { it.trip.id }) { record ->
-            TripRow(
-                record,
-                onCheck = { selectedId = record.trip.id },
-                onCorrect = { correcting = record },
-            )
-            HorizontalDivider()
+            TripRowCard(record) {
+                when {
+                    record.trip.endedAt == null -> Unit
+                    record.trip.isConfirmed -> actions.openDetail(record.trip.id)
+                    else -> actions.openReview(record.trip.id)
+                }
+            }
         }
-    }
-    correcting?.let { record ->
-        CorrectionDialog(
-            record = record,
-            onDismiss = { correcting = null },
-            onSave = { mode, purpose, visit, reason ->
-                actions.correct(record, mode, purpose, visit, reason)
-                correcting = null
-            },
-        )
     }
 }
 
 @Composable
-private fun StatusBar(status: DriveStatus, onSettings: () -> Unit, onExport: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            if (status.isDriving) "운행 중" else "주차",
-            fontSize = 36.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (status.isDriving) DrivingGreen else MaterialTheme.colorScheme.onBackground,
-        )
-        Spacer(Modifier.width(32.dp))
-        Text("계기판 누적거리  ", fontSize = 22.sp, color = Muted)
-        Text(status.odometerKm?.let { formatKm(it) } ?: "-", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(1f))
-        Button(onClick = onExport) { Text("운행기록부 내보내기", fontSize = 20.sp) }
-        Spacer(Modifier.width(12.dp))
-        OutlinedButton(onClick = onSettings) { Text("설정", fontSize = 20.sp) }
+private fun TopBar(status: DriveStatus, actions: HomeActions) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        StatusPill(status.isDriving)
+        Column(Modifier.weight(1f)) {
+            Text(APP_NAME, style = Type.TitleM)
+            Text(
+                "계기판 누적거리 " + (status.odometerKm?.let { formatKm(it) } ?: "-"),
+                style = Type.BodyS,
+                color = Palette.TextSub,
+            )
+        }
+        BigButton("운행기록부 내보내기", actions.openExport)
+        BigButton("설정", actions.openSettings)
     }
+}
+
+@Composable
+private fun StatusPill(driving: Boolean) {
+    Row(
+        Modifier
+            .height(Dim.ButtonM)
+            .clip(RoundedCornerShape(Dim.RadiusM))
+            .background(Palette.Surface)
+            .padding(horizontal = 28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(20.dp).clip(CircleShape).background(if (driving) Palette.Text else Palette.TextSub))
+        Spacer(Modifier.width(16.dp))
+        Text(if (driving) "운행 중" else "주차", style = Type.TitleS)
+    }
+}
+
+/** 미확정 운행 알림: 맨 위에 크게, 누르면 분류 카드로 */
+@Composable
+private fun PendingBanner(pending: List<TripRecord>, voice: VoicePhase?, onOpen: () -> Unit) {
+    val latest = pending.first().trip
+    val shape = RoundedCornerShape(Dim.RadiusL)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Palette.Surface)
+            .border(BorderStroke(3.dp, Palette.Pending), shape)
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 36.dp, vertical = 28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("확인할 운행 ${pending.size}건", style = Type.TitleL, color = Palette.Pending)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "${DATE_SHORT.format(Date(latest.startedAt))} ${timeRange(latest)}  ·  ${routeText(latest)}  ·  ${distanceText(latest) ?: "-"}",
+                style = Type.BodyL,
+            )
+            voiceText(voice)?.let { Text(it, style = Type.BodyM, color = Palette.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        Spacer(Modifier.width(24.dp))
+        BigButton("확인하기", onOpen, color = Palette.Pending, height = Dim.ButtonL)
+    }
+}
+
+/** 음성 진행 상태 문구 (대기 중이면 null) */
+fun voiceText(voice: VoicePhase?): String? = when (voice) {
+    is VoicePhase.Speaking -> "음성 안내 중: ${voice.text}"
+    is VoicePhase.Listening -> "듣는 중… ${voice.partial}"
+    is VoicePhase.Heard -> "인식: “${voice.text}”"
+    VoicePhase.Idle, null -> null
 }
 
 /** 이번 달 요약. 업무용 사용거리 = 출퇴근 + 업무 (법인세법 시행규칙 제27조의2 ⑦). 정정 반영값으로 집계. */
@@ -168,268 +194,102 @@ private fun StatusBar(status: DriveStatus, onSettings: () -> Unit, onExport: () 
 private fun MonthSummary(records: List<TripRecord>) {
     // 엑셀 ⑪⑫⑬과 같은 계산을 쓴다
     val period = LedgerPeriod.of(LedgerPeriodKind.THIS_MONTH)
-    val totals = Ledger.build(records, LedgerProfile(), period).totals
+    val ledger = Ledger.build(records, LedgerProfile(), period)
+    val totals = ledger.totals
     val month = YearMonth.from(period.start)
-    val total = totals.totalKm
-    val business = totals.businessUseKm
-    val ratio = totals.ratioPercent
-    Card(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${month.year}년 ${month.monthValue}월", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(40.dp))
-            SummaryItem("총 주행거리", formatKm(total))
-            SummaryItem("업무용 사용거리 (출퇴근+업무)", formatKm(business))
-            SummaryItem("업무 사용 비율", String.format(Locale.KOREA, "%.1f%%", ratio), Accent)
-        }
-    }
-}
+    val business = ledger.rows.sumOf { it.businessKm ?: 0.0 }
+    val commute = ledger.rows.sumOf { it.commuteKm ?: 0.0 }
+    val personal = (totals.totalKm - business - commute).coerceAtLeast(0.0)
 
-@Composable
-private fun SummaryItem(label: String, value: String, color: Color = Color.Unspecified) {
-    Column(Modifier.padding(end = 48.dp)) {
-        Text(label, fontSize = 18.sp, color = Muted)
-        Text(value, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = color)
-    }
-}
-
-/**
- * 운행 종료 후 정차 상태에서 띄우는 분류 확인 카드.
- * 음성 응답이 들어오면 modeBy가 바뀌므로 그 값을 키로 다시 채운다 (확정은 사용자가 누른다).
- * voice == null 이면 음성 꺼짐.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TripCard(trip: Trip, voice: VoicePhase?, actions: HomeActions) {
-    var mode by remember(trip.id, trip.modeBy) { mutableStateOf(trip.mode) }
-    var modeBy by remember(trip.id, trip.modeBy) { mutableStateOf(trip.modeBy) }
-    var purpose by remember(trip.id, trip.modeBy) { mutableStateOf(trip.purpose) }
-    var visit by remember(trip.id, trip.modeBy) { mutableStateOf(trip.visitPlace) }
-    fun save() = mode?.let { actions.classify(trip, it, modeBy, purpose, visit) }
-
-    Card(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-        Column(Modifier.padding(24.dp)) {
-            Text(
-                "방금 운행 #${trip.id}  ·  ${DATE_SHORT.format(Date(trip.startedAt))} ${timeRange(trip)}  ·  ${routeText(trip)}  ·  ${distanceText(trip) ?: formatKm(0.0)}",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-            )
-            if (voice != null) VoiceLine(voice) { actions.askVoice(trip) }
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    ModeButtons(mode) { selected ->
-                        if (selected != mode) {
-                            mode = selected
-                            modeBy = "정차 중 화면에서 선택"
-                            purpose = ""
-                            visit = ""
-                            save()
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "분류 근거: ${modeBy.ifEmpty { "없음 — 모드를 선택해 주세요" }}" +
-                            if (mode == TripMode.PERSONAL) "  · 업무사용비율 제외 · 위치 미저장 (거리만 기록)" else "",
-                        fontSize = 20.sp,
-                        color = Muted,
-                    )
-                }
-                val canConfirm = mode != null && (mode != TripMode.BUSINESS || purpose.isNotBlank())
-                Button(onClick = { save(); actions.confirm(trip) }, enabled = canConfirm, modifier = Modifier.height(64.dp)) {
-                    Text("운행 확정", fontSize = 24.sp)
-                }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Dim.RadiusL)).background(Palette.Surface).padding(32.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f)) {
+                Text("${month.year}년 ${month.monthValue}월 업무 사용 비율", style = Type.BodyM, color = Palette.TextSub)
+                Text(String.format(Locale.KOREA, "%.1f%%", totals.ratioPercent), fontSize = 64.sp, lineHeight = 72.sp, fontWeight = FontWeight.ExtraBold)
             }
-            if (mode == TripMode.BUSINESS) {
-                Spacer(Modifier.height(16.dp))
-                Text("운행 목적", fontSize = 20.sp, color = Muted)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PURPOSE_PRESETS.forEach { preset ->
-                        FilterChip(
-                            selected = purpose == preset,
-                            onClick = { purpose = preset; save() },
-                            label = { Text(preset, fontSize = 20.sp, modifier = Modifier.padding(8.dp)) },
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(
-                        value = purpose,
-                        onValueChange = { purpose = it; save() },
-                        label = { Text("목적 직접 입력") },
-                        textStyle = TextStyle(fontSize = 22.sp),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = visit,
-                        onValueChange = { visit = it; save() },
-                        label = { Text("방문처") },
-                        textStyle = TextStyle(fontSize = 22.sp),
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (purpose.isBlank()) Text("업무 운행은 목적을 입력해야 확정할 수 있습니다", fontSize = 18.sp, color = Warn)
-            }
+            SummaryValue("총 주행거리", formatKm(totals.totalKm))
+            Spacer(Modifier.width(56.dp))
+            SummaryValue("업무용 사용거리 (출퇴근+업무)", formatKm(totals.businessUseKm))
+        }
+        Spacer(Modifier.height(20.dp))
+        // 막대: 업무 · 출퇴근 · 개인 비율
+        Row(Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(14.dp)).background(Palette.SurfaceHigh)) {
+            listOf(TripMode.BUSINESS to business, TripMode.COMMUTE to commute, TripMode.PERSONAL to personal)
+                .filter { it.second > 0 }
+                .forEach { (mode, km) -> Box(Modifier.weight(km.toFloat()).fillMaxHeight().background(mode.color)) }
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+            Legend(TripMode.BUSINESS, business)
+            Legend(TripMode.COMMUTE, commute)
+            Legend(TripMode.PERSONAL, personal)
         }
     }
 }
 
 @Composable
-private fun VoiceLine(phase: VoicePhase, onAsk: () -> Unit) {
-    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        val (text, color) = when (phase) {
-            is VoicePhase.Speaking -> "음성 안내 중: ${phase.text}" to Accent
-            is VoicePhase.Listening -> "듣는 중… ${phase.partial}" to Accent
-            is VoicePhase.Heard -> "인식: “${phase.text}”" to Muted
-            VoicePhase.Idle -> "음성으로 답하면 아래 칸이 채워집니다 (예: 거래처 미팅, 개인 용무, 퇴근)" to Muted
-        }
-        Text(text, fontSize = 20.sp, color = color, modifier = Modifier.weight(1f))
-        if (phase == VoicePhase.Idle || phase is VoicePhase.Heard) {
-            OutlinedButton(onClick = onAsk) { Text("음성으로 답하기", fontSize = 20.sp) }
-        }
+private fun SummaryValue(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(label, style = Type.Label, color = Palette.TextSub)
+        Text(value, style = Type.TitleM)
     }
 }
 
 @Composable
-private fun ModeButtons(selected: TripMode?, onSelect: (TripMode) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        TripMode.entries.forEach { mode ->
-            val modifier = Modifier.width(150.dp).height(60.dp)
-            if (mode == selected) {
-                Button(onClick = { onSelect(mode) }, modifier = modifier) { Text(mode.label, fontSize = 24.sp) }
-            } else {
-                OutlinedButton(onClick = { onSelect(mode) }, modifier = modifier) { Text(mode.label, fontSize = 24.sp) }
-            }
-        }
+private fun Legend(mode: TripMode, km: Double) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(20.dp).clip(CircleShape).background(mode.color))
+        Spacer(Modifier.width(12.dp))
+        Text("${mode.label} ${formatKm(km)}", style = Type.BodyS)
     }
 }
 
-private val columnWeights = listOf(0.5f, 1.3f, 1.2f, 1.2f, 1.3f, 1.3f, 0.9f, 0.8f, 2f, 0.8f)
-
+/** 운행 한 줄 (큰 행). 계기판 전·후 값과 정정 이력은 상세 화면에서 */
 @Composable
-private fun TripHeader() {
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
-        listOf("", "날짜", "시각", "구간", "주행 전 계기판", "주행 후 계기판", "주행거리", "구분", "목적 · 방문처", "").forEachIndexed { i, text ->
-            Cell(text, i, color = Muted, fontSize = 17)
-        }
-    }
-    HorizontalDivider()
-}
-
-/** 표의 원본 줄은 바꾸지 않고, 정정 내용은 아래에 "정정 이력" 줄로 붙인다. */
-@Composable
-private fun TripRow(record: TripRecord, onCheck: () -> Unit, onCorrect: () -> Unit) {
+private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
     val trip = record.trip
-    Column {
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(columnWeights[0])) {
-                if (trip.isConfirmed) Icon(Icons.Filled.Lock, contentDescription = "확정", tint = DrivingGreen, modifier = Modifier.size(24.dp))
-            }
-            Cell(DATE.format(Date(trip.startedAt)), 1)
-            Cell(timeRange(trip), 2)
-            Cell(routeText(trip), 3)
-            Cell(formatKm(trip.startOdometerKm), 4, align = TextAlign.End)
-            Cell(trip.endOdometerKm?.let { formatKm(it) } ?: "주행 중", 5, align = TextAlign.End)
-            Cell(distanceText(trip) ?: "-", 6, align = TextAlign.End, bold = true, color = if (trip.odometerAnomaly) Warn else Color.Unspecified)
-            Cell(trip.mode?.label ?: "-", 7, align = TextAlign.Center)
-            Cell(listOf(trip.purpose, trip.visitPlace).filter { it.isNotBlank() }.joinToString(" · "), 8)
-            Row(Modifier.weight(columnWeights[9]), horizontalArrangement = Arrangement.End) {
-                when {
-                    trip.isConfirmed -> TextButton(onClick = onCorrect) { Text("정정", fontSize = 20.sp) }
-                    trip.endedAt != null -> TextButton(onClick = onCheck) { Text("확인", fontSize = 20.sp, color = Warn) }
-                }
-            }
+    val mode = record.effectiveMode
+    val shape = RoundedCornerShape(Dim.RadiusM)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 120.dp)
+            .clip(shape)
+            .background(Palette.Surface)
+            .then(if (!trip.isConfirmed && trip.endedAt != null) Modifier.border(2.dp, Palette.Pending, shape) else Modifier)
+            .clickable(enabled = trip.endedAt != null, onClick = onClick)
+            .padding(horizontal = 32.dp, vertical = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.width(220.dp)) {
+            Text(DATE_SHORT.format(Date(trip.startedAt)), style = Type.BodyL.copy(fontWeight = FontWeight.Bold))
+            Text(timeRange(trip), style = Type.BodyS, color = Palette.TextSub)
         }
-        record.corrections.forEach { CorrectionLine(it) }
+        Column(Modifier.weight(1f).padding(end = 24.dp)) {
+            Text(routeText(trip, record), style = Type.BodyL.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            subLine(record)?.let { Text(it, style = Type.BodyS, color = Palette.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        Text(
+            if (trip.endedAt == null) "운행 중" else distanceText(trip) ?: "-",
+            style = Type.TitleS,
+            color = if (trip.odometerAnomaly) Palette.Pending else Palette.Text,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(220.dp),
+        )
+        Box(Modifier.width(150.dp), contentAlignment = Alignment.Center) { if (trip.endedAt != null) ModeTag(mode) }
+        Box(Modifier.width(130.dp), contentAlignment = Alignment.CenterEnd) { if (trip.endedAt != null) ConfirmState(trip.isConfirmed) }
     }
 }
 
-@Composable
-private fun CorrectionLine(c: Correction) {
-    Text(
-        "↳ 정정 이력 #${c.id} · ${DATE_TIME.format(Date(c.createdAt))} · ${c.field.label}: \"${c.displayValue(c.before)}\" → \"${c.displayValue(c.after)}\" · 사유: ${c.reason} (원본 줄 유지)",
-        fontSize = 19.sp,
-        color = Warn,
-        modifier = Modifier.padding(start = 40.dp, bottom = 10.dp),
-    )
-}
-
-@Composable
-private fun androidx.compose.foundation.layout.RowScope.Cell(
-    text: String,
-    index: Int,
-    align: TextAlign = TextAlign.Start,
-    bold: Boolean = false,
-    color: Color = Color.Unspecified,
-    fontSize: Int = 20,
-) {
-    Text(
-        text,
-        modifier = Modifier.weight(columnWeights[index]).padding(horizontal = 6.dp),
-        fontSize = fontSize.sp,
-        textAlign = align,
-        color = color,
-        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-        maxLines = 2,
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CorrectionDialog(
-    record: TripRecord,
-    onDismiss: () -> Unit,
-    onSave: (mode: TripMode, purpose: String, visitPlace: String, reason: String) -> Unit,
-) {
-    var mode by remember { mutableStateOf(record.effectiveMode ?: TripMode.BUSINESS) }
-    var purpose by remember { mutableStateOf(record.effectivePurpose) }
-    var visit by remember { mutableStateOf(record.effectiveVisitPlace) }
-    var reason by remember { mutableStateOf("") }
-    val changed = mode != record.effectiveMode || purpose.trim() != record.effectivePurpose || visit.trim() != record.effectiveVisitPlace
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Card(Modifier.width(1000.dp)) {
-            Column(Modifier.padding(28.dp).verticalScroll(rememberScrollState())) {
-                Text("운행 #${record.trip.id} 정정 요청", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "확정된 원본 값은 바뀌지 않습니다. 저장하면 표에 \"정정 이력\" 줄이 추가되고, 집계에 반영됩니다. 계기판 거리(주행 전·후)는 정정할 수 없습니다.",
-                    fontSize = 19.sp,
-                    color = Muted,
-                )
-                Spacer(Modifier.height(16.dp))
-                ModeButtons(mode) { mode = it }
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    OutlinedTextField(purpose, { purpose = it }, label = { Text("목적") }, textStyle = TextStyle(fontSize = 22.sp), singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(visit, { visit = it }, label = { Text("방문처") }, textStyle = TextStyle(fontSize = 22.sp), singleLine = true, modifier = Modifier.weight(1f))
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PURPOSE_PRESETS.forEach { preset ->
-                        FilterChip(selected = purpose == preset, onClick = { purpose = preset }, label = { Text(preset, fontSize = 18.sp) })
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Text("정정 사유 (필수)", fontSize = 20.sp, color = Muted)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    REASON_PRESETS.forEach { preset ->
-                        FilterChip(selected = reason == preset, onClick = { reason = preset }, label = { Text(preset, fontSize = 18.sp) })
-                    }
-                }
-                OutlinedTextField(reason, { reason = it }, label = { Text("사유 직접 입력") }, textStyle = TextStyle(fontSize = 22.sp), singleLine = true, modifier = Modifier.fillMaxWidth())
-                if (reason.isBlank()) Text("사유를 입력해야 정정할 수 있습니다", fontSize = 18.sp, color = Warn)
-                Spacer(Modifier.height(20.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("취소", fontSize = 22.sp) }
-                    Spacer(Modifier.width(12.dp))
-                    Button(onClick = { onSave(mode, purpose, visit, reason) }, enabled = changed && reason.isNotBlank()) {
-                        Text("정정 이력 추가", fontSize = 22.sp)
-                    }
-                }
-            }
-        }
+private fun subLine(record: TripRecord): String? {
+    val parts = buildList {
+        if (record.effectiveMode == TripMode.PERSONAL) add("업무사용비율 제외 · 거리만 기록")
+        else record.effectivePurpose.takeIf { it.isNotBlank() }?.let(::add)
+        if (record.corrections.isNotEmpty()) add("정정 ${record.corrections.size}건")
     }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 @Composable
@@ -439,55 +299,87 @@ fun SettingsScreen(
     profile: LedgerProfile,
     voiceEnabled: Boolean,
     onVoiceEnabled: (Boolean) -> Unit,
+    showQrAddress: Boolean?,
+    onShowQrAddress: (Boolean) -> Unit,
     onRegister: (PlaceKind) -> Unit,
     onSaveProfile: (LedgerProfile) -> Unit,
     onBack: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp).verticalScroll(rememberScrollState())) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← 운행기록", fontSize = 22.sp) }
-            Spacer(Modifier.width(16.dp))
-            Text("설정", fontSize = 32.sp, fontWeight = FontWeight.Bold)
-        }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = Dim.Gutter, vertical = 28.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        ScreenHeader("설정", onBack)
+        message?.let { Text(it, style = Type.BodyM, color = Palette.Text) }
         ProfileForm(profile, onSaveProfile)
-        Row(Modifier.fillMaxWidth().padding(top = 28.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("음성 안내", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "운행 시작 시 짧게 알리고, 정차(P) 후 분류·목적을 묻습니다. 답하지 않거나 인식하지 못하면 화면 카드로 입력합니다. 음성은 차 안에서만 처리합니다(ON_DEVICE).",
-                    fontSize = 19.sp,
-                    color = Muted,
-                )
-            }
-            Spacer(Modifier.width(24.dp))
-            Text(if (voiceEnabled) "켜짐" else "꺼짐", fontSize = 22.sp, color = if (voiceEnabled) Accent else Muted)
-            Spacer(Modifier.width(12.dp))
-            Switch(checked = voiceEnabled, onCheckedChange = onVoiceEnabled)
-        }
-        Text("장소", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp))
-        Text(
-            "자택·회사를 등록하면 영역 진입·이탈(FusedLocation 영역 알림)로 출퇴근을 자동 제안합니다. 개인 운행은 위치를 저장하지 않습니다.",
-            fontSize = 20.sp,
-            color = Muted,
-            modifier = Modifier.padding(vertical = 16.dp),
+        ToggleRow(
+            "음성 안내",
+            "운행 시작 시 짧게 알리고, 정차(P) 후 분류·목적을 묻습니다. 답하지 않거나 인식하지 못하면 화면에서 입력합니다. 음성은 차 안에서만 처리합니다.",
+            voiceEnabled,
+            onVoiceEnabled,
         )
+        SectionTitle("장소", "자택·회사를 등록하면 출퇴근을 자동 제안합니다. 개인 운행은 위치를 저장하지 않습니다.")
         PlaceKind.entries.forEach { kind ->
             val place = places.firstOrNull { it.kind == kind }
-            Row(Modifier.fillMaxWidth().padding(vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(kind.label, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(120.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(Dim.RadiusM)).background(Palette.Surface).padding(horizontal = 32.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(kind.label, style = Type.TitleS, modifier = Modifier.width(140.dp))
                 Text(
                     place?.let {
                         String.format(Locale.US, "%.5f, %.5f · 반경 %.0fm · 등록 %s", it.lat, it.lng, it.radiusMeters, DATE_TIME.format(Date(it.registeredAt)))
                     } ?: "미등록",
-                    fontSize = 22.sp,
-                    color = if (place == null) Muted else Color.Unspecified,
+                    style = Type.BodyS,
+                    color = if (place == null) Palette.Pending else Palette.TextSub,
                     modifier = Modifier.weight(1f),
                 )
-                Button(onClick = { onRegister(kind) }, modifier = Modifier.height(60.dp)) { Text("현재 위치로 등록", fontSize = 22.sp) }
+                BigButton("현재 위치로 등록", { onRegister(kind) })
             }
-            HorizontalDivider()
         }
-        message?.let { Text(it, fontSize = 22.sp, color = Accent, modifier = Modifier.padding(top = 20.dp)) }
+        // 디버그 빌드에서만
+        showQrAddress?.let { ToggleRow("QR 화면에 연결 주소 표시 (디버그)", "휴대폰으로 받기 화면 아래에 서버 주소를 보여 줍니다.", it, onShowQrAddress) }
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, description: String? = null) {
+    Column(Modifier.padding(top = 12.dp)) {
+        Text(title, style = Type.TitleS)
+        description?.let { Text(it, style = Type.BodyS, color = Palette.TextSub) }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(Dim.RadiusM))
+            .background(Palette.Surface)
+            .clickable { onChange(!checked) }
+            .padding(horizontal = 32.dp, vertical = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = Type.TitleS)
+            Text(description, style = Type.BodyS, color = Palette.TextSub)
+        }
+        Spacer(Modifier.width(32.dp))
+        Text(if (checked) "켜짐" else "꺼짐", style = Type.BodyL, color = if (checked) Palette.Text else Palette.TextSub)
+        Spacer(Modifier.width(32.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            modifier = Modifier.scale(1.6f).padding(horizontal = 12.dp),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Palette.Background,
+                checkedTrackColor = Palette.Text,
+                uncheckedThumbColor = Palette.TextSub,
+                uncheckedTrackColor = Palette.SurfaceHigh,
+                uncheckedBorderColor = Palette.Outline,
+            ),
+        )
     }
 }
 
@@ -495,47 +387,55 @@ fun SettingsScreen(
 @Composable
 private fun ProfileForm(saved: LedgerProfile, onSave: (LedgerProfile) -> Unit) {
     var p by remember(saved) { mutableStateOf(saved) }
-    Text("운행기록부 머리 정보", fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
-    Text("④ 사용자는 운전자가 아니라 차량 이용자(부서·성명)입니다. 차종은 차량 정보로 확인되지 않아 직접 입력합니다.", fontSize = 19.sp, color = Muted)
-    @Composable
-    fun RowScope.Field(label: String, value: String, onChange: (String) -> Unit) = OutlinedTextField(
-        value, onChange, label = { Text(label) }, textStyle = TextStyle(fontSize = 22.sp), singleLine = true, modifier = Modifier.weight(1f),
-    )
-    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Field("상호(법인명)", p.company) { p = p.copy(company = it) }
-        Field("사업자등록번호", p.bizNo) { p = p.copy(bizNo = it) }
+    SectionTitle("운행기록부 머리 정보", "④ 사용자는 운전자가 아니라 차량 이용자(부서·성명)입니다. 차종은 차량 정보로 확인되지 않아 직접 입력합니다.")
+    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        BigField(p.company, { p = p.copy(company = it) }, "상호(법인명)", Modifier.weight(1f))
+        BigField(p.bizNo, { p = p.copy(bizNo = it) }, "사업자등록번호", Modifier.weight(1f))
     }
-    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Field("①차종", p.carModel) { p = p.copy(carModel = it) }
-        Field("②자동차등록번호", p.plate) { p = p.copy(plate = it) }
+    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        BigField(p.carModel, { p = p.copy(carModel = it) }, "①차종", Modifier.weight(1f))
+        BigField(p.plate, { p = p.copy(plate = it) }, "②자동차등록번호", Modifier.weight(1f))
     }
-    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Field("④사용자 부서", p.dept) { p = p.copy(dept = it) }
-        Field("④사용자 성명", p.userName) { p = p.copy(userName = it) }
+    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        BigField(p.dept, { p = p.copy(dept = it) }, "④사용자 부서", Modifier.weight(1f))
+        BigField(p.userName, { p = p.copy(userName = it) }, "④사용자 성명", Modifier.weight(1f))
     }
-    Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Button(onClick = { onSave(p) }, enabled = p != saved, modifier = Modifier.height(56.dp)) { Text("머리 정보 저장", fontSize = 22.sp) }
-        Spacer(Modifier.width(16.dp))
-        if (saved.missing.isNotEmpty()) Text("미입력: ${saved.missing.joinToString(", ")}", fontSize = 19.sp, color = Warn)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        BigButton("머리 정보 저장", { onSave(p) }, enabled = p != saved)
+        Spacer(Modifier.width(24.dp))
+        if (saved.missing.isNotEmpty()) Text("미입력: ${saved.missing.joinToString(", ")}", style = Type.BodyS, color = Palette.Pending)
     }
 }
 
-private fun routeText(trip: Trip): String = when {
-    trip.mode == TripMode.PERSONAL && trip.startLat == null -> "위치 미저장"
-    trip.endedAt == null -> "${trip.fromPlace?.label ?: "기타 위치"} →"
-    else -> "${trip.fromPlace?.label ?: "기타 위치"} → ${trip.toPlace?.label ?: "기타 위치"}"
+/**
+ * 구간 표시. 등록 장소(자택·회사)는 이름, 그 밖의 곳은 업무면 방문처 이름을 쓴다.
+ * 도착지가 등록 장소가 아니면 도착지를, 아니면 출발지를 방문처로 본다.
+ */
+fun routeText(trip: Trip, record: TripRecord? = null): String {
+    val mode = record?.effectiveMode ?: trip.mode
+    val visit = (record?.effectiveVisitPlace ?: trip.visitPlace).takeIf { mode == TripMode.BUSINESS && it.isNotBlank() }
+    // 개인 운행으로 끝난 운행은 위치가 없다 (나중에 정정으로 분류가 바뀌어도)
+    if (trip.mode == TripMode.PERSONAL && trip.startLat == null && trip.fromPlace == null && trip.toPlace == null) return "위치 미저장"
+    val from = trip.fromPlace?.label
+    if (trip.endedAt == null) return "${from ?: "출발지"} →"
+    val to = trip.toPlace?.label
+    val toText = to ?: visit ?: OTHER_PLACE
+    val fromText = from ?: visit?.takeIf { to != null } ?: OTHER_PLACE
+    return "$fromText → $toText"
 }
 
-private fun timeRange(trip: Trip) = TIME.format(Date(trip.startedAt)) + (trip.endedAt?.let { "–" + TIME.format(Date(it)) } ?: "")
+private const val OTHER_PLACE = "기타 장소"
+
+internal fun timeRange(trip: Trip) = TIME.format(Date(trip.startedAt)) + (trip.endedAt?.let { "–" + TIME.format(Date(it)) } ?: "")
 
 internal fun formatKm(km: Double) = String.format(Locale.KOREA, "%,.1f km", km)
 
 /** 종료 누적거리 < 시작이면 거리 대신 "계기판 값 이상" (집계 제외) */
-private fun distanceText(trip: Trip): String? = if (trip.odometerAnomaly) ODOMETER_ANOMALY else trip.distanceKm?.let { formatKm(it) }
+internal fun distanceText(trip: Trip): String? = if (trip.odometerAnomaly) ODOMETER_ANOMALY else trip.distanceKm?.let { formatKm(it) }
 
 internal const val ODOMETER_ANOMALY = "계기판 값 이상"
 
-private val DATE = SimpleDateFormat("yyyy-MM-dd (E)", Locale.KOREA)
-private val DATE_SHORT = SimpleDateFormat("M/d (E)", Locale.KOREA)
-private val DATE_TIME = SimpleDateFormat("M/d HH:mm", Locale.KOREA)
-private val TIME = SimpleDateFormat("HH:mm", Locale.KOREA)
+internal val DATE = SimpleDateFormat("yyyy-MM-dd (E)", Locale.KOREA)
+internal val DATE_SHORT = SimpleDateFormat("M/d (E)", Locale.KOREA)
+internal val DATE_TIME = SimpleDateFormat("M/d HH:mm", Locale.KOREA)
+internal val TIME = SimpleDateFormat("HH:mm", Locale.KOREA)

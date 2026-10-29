@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,9 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.bizdrivelog.export.QrState
 import io.nayuki.qrcodegen.QrCode
 import kotlinx.coroutines.delay
@@ -34,15 +30,15 @@ import java.io.File
 
 /** 휴대폰으로 받기: QR / 핫스팟 연결 안내 / 완료·만료 */
 @Composable
-fun QrPanel(state: QrState, file: File?, onRetry: () -> Unit, onClose: () -> Unit) {
+fun QrPanel(state: QrState, file: File?, showAddress: Boolean, onRetry: () -> Unit, onClose: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp),
+        Modifier.fillMaxSize().padding(horizontal = Dim.Gutter, vertical = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("휴대폰으로 받기", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+        Text("휴대폰으로 받기", style = Type.TitleL)
         Spacer(Modifier.height(20.dp))
         when (state) {
-            is QrState.Waiting -> Waiting(state, file)
+            is QrState.Waiting -> Waiting(state, file, showAddress)
             QrState.NoWifi -> Guide(
                 "휴대폰 핫스팟에 차량을 연결해 주세요",
                 listOf(
@@ -57,17 +53,17 @@ fun QrPanel(state: QrState, file: File?, onRetry: () -> Unit, onClose: () -> Uni
             QrState.Idle -> Unit
         }
         Spacer(Modifier.height(28.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             if (state != QrState.Downloaded && state !is QrState.Waiting) {
-                Button(onClick = onRetry, modifier = Modifier.height(64.dp)) { Text("다시 시도", fontSize = 24.sp) }
+                BigButton("다시 시도", onRetry, color = Palette.Text, height = Dim.ButtonL)
             }
-            OutlinedButton(onClick = onClose, modifier = Modifier.height(64.dp)) { Text("닫기", fontSize = 24.sp) }
+            BigButton("닫기", onClose, height = Dim.ButtonL)
         }
     }
 }
 
 @Composable
-private fun Waiting(state: QrState.Waiting, file: File?) {
+private fun Waiting(state: QrState.Waiting, file: File?, showAddress: Boolean) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.expiresAt) {
         while (true) {
@@ -80,24 +76,27 @@ private fun Waiting(state: QrState.Waiting, file: File?) {
         QrImage(state.url, Modifier.size(420.dp))
         Spacer(Modifier.width(48.dp))
         Column {
-            Text("휴대폰 카메라로 QR을 찍으면\n엑셀 파일이 저장됩니다", fontSize = 28.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(16.dp))
-            file?.let { Text(it.name, fontSize = 22.sp) }
-            Text("휴대폰과 차량이 같은 Wi-Fi(휴대폰 핫스팟)에 있어야 합니다", fontSize = 20.sp, color = Muted)
-            Spacer(Modifier.height(16.dp))
-            Text("남은 시간 %d:%02d".format(left / 60, left % 60), fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Accent)
-            Text("한 번 받으면 또는 5분이 지나면 자동으로 닫힙니다", fontSize = 20.sp, color = Muted)
-            Spacer(Modifier.height(12.dp))
-            Text(state.address + if (state.debugOverride) "  (디버그: 주소 덮어쓰기)" else "", fontSize = 18.sp, color = Muted)
+            Text("휴대폰 카메라로 QR을 찍으면\n엑셀 파일이 저장됩니다", style = Type.TitleM)
+            Spacer(Modifier.height(20.dp))
+            file?.let { Text(it.name, style = Type.BodyM) }
+            Text("휴대폰과 차량이 같은 Wi-Fi(휴대폰 핫스팟)에 있어야 합니다", style = Type.BodyS, color = Palette.TextSub)
+            Spacer(Modifier.height(20.dp))
+            Text("남은 시간 %d:%02d".format(left / 60, left % 60), style = Type.TitleL)
+            Text("한 번 받으면 또는 5분이 지나면 자동으로 닫힙니다", style = Type.BodyS, color = Palette.TextSub)
+            // 연결 주소는 디버그 설정에서 켰을 때만
+            if (showAddress) {
+                Spacer(Modifier.height(12.dp))
+                Text(state.address + if (state.debugOverride) "  (디버그: 주소 덮어쓰기)" else "", style = Type.Label, color = Palette.TextSub)
+            }
         }
     }
 }
 
 @Composable
 private fun Guide(title: String, lines: List<String>) {
-    Text(title, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Warn)
-    Spacer(Modifier.height(16.dp))
-    lines.forEach { Text(it, fontSize = 22.sp, modifier = Modifier.padding(vertical = 4.dp)) }
+    Text(title, style = Type.TitleM, color = Palette.Pending)
+    Spacer(Modifier.height(20.dp))
+    lines.forEach { Text(it, style = Type.BodyL, modifier = Modifier.padding(vertical = 6.dp)) }
 }
 
 @Composable

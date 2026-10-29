@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import app.bizdrivelog.BizDriveLogApp
+import app.bizdrivelog.BuildConfig
 import app.bizdrivelog.data.Correction
 import app.bizdrivelog.data.CorrectionField
 import app.bizdrivelog.data.LedgerProfile
@@ -55,9 +56,11 @@ class MainActivity : ComponentActivity() {
 
     /** 주행 규제 중이면 최소 화면만 그린다 (Pleos 주행 규제 개발 가이드: DO 선언 앱은 CarUxRestrictions를 직접 확인) */
     private var restricted by mutableStateOf(false)
-    private enum class Screen { HOME, SETTINGS, EXPORT }
+    private enum class Screen { HOME, REVIEW, DETAIL, SETTINGS, EXPORT }
 
     private var screen by mutableStateOf(Screen.HOME)
+    /** REVIEW·DETAIL 화면의 운행 */
+    private var tripId by mutableStateOf<Long?>(null)
     private var settingsMessage by mutableStateOf<String?>(null)
     private val profileStore by lazy { ProfileStore(this) }
     private var profile by mutableStateOf(LedgerProfile())
@@ -67,6 +70,9 @@ class MainActivity : ComponentActivity() {
     private val qrController by lazy { QrDownloadController(applicationContext) { qrState = it } }
     private val voiceSettings by lazy { VoiceSettings(this) }
     private var voiceEnabled by mutableStateOf(true)
+    private val debugPrefs by lazy { getSharedPreferences("debug", MODE_PRIVATE) }
+    /** QR 화면 연결 주소 표시 (디버그 빌드 설정에서만 켤 수 있음) */
+    private var showQrAddress by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,6 +81,7 @@ class MainActivity : ComponentActivity() {
         requestLocationPermission()
         profile = profileStore.load()
         voiceEnabled = voiceSettings.enabled
+        showQrAddress = BuildConfig.DEBUG && debugPrefs.getBoolean("showQrAddress", false)
         fusedLocation = runCatching { FusedLocation(applicationContext).also { it.initialize() } }.getOrNull()
 
         val tripDao = database.tripDao()
@@ -90,15 +97,42 @@ class MainActivity : ComponentActivity() {
             val placeList by places.collectAsStateWithLifecycle(initialValue = emptyList())
             val voicePhase by VoiceState.phase.collectAsStateWithLifecycle()
             BackHandler(enabled = screen != Screen.HOME) { screen = Screen.HOME }
+            val actions = HomeActions(
+                classify = ::classify,
+                confirm = { confirm(it); screen = Screen.HOME },
+                correct = ::correct,
+                askVoice = { DriveRecorderService.ask(this, it.id) },
+                openReview = { tripId = it; screen = Screen.REVIEW },
+                openDetail = { tripId = it; screen = Screen.DETAIL },
+                openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
+                openExport = {
+                    exportState = ExportState()
+                    canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
+                    screen = Screen.EXPORT
+                },
+            )
+            val selected = recordList.firstOrNull { it.trip.id == tripId }
+            val pending = recordList.pending()
             BizDriveLogTheme {
                 when {
                     restricted -> DrivingScreen(status)
+                    screen == Screen.REVIEW && selected != null && !selected.trip.isConfirmed -> ReviewScreen(
+                        record = selected,
+                        position = pending.indexOf(selected) + 1,
+                        count = pending.size,
+                        voice = if (voiceEnabled) voicePhase else null,
+                        actions = actions,
+                        onBack = { screen = Screen.HOME },
+                    )
+                    screen == Screen.DETAIL && selected != null -> DetailScreen(selected, onBack = { screen = Screen.HOME }, onCorrect = ::correct)
                     screen == Screen.SETTINGS -> SettingsScreen(
                         places = placeList,
                         message = settingsMessage,
                         profile = profile,
                         voiceEnabled = voiceEnabled,
                         onVoiceEnabled = ::toggleVoice,
+                        showQrAddress = showQrAddress.takeIf { BuildConfig.DEBUG },
+                        onShowQrAddress = { showQrAddress = it; debugPrefs.edit().putBoolean("showQrAddress", it).apply() },
                         onRegister = ::registerCurrentLocation,
                         onSaveProfile = { profileStore.save(it); profile = profileStore.load(); settingsMessage = "머리 정보를 저장했습니다" },
                         onBack = { screen = Screen.HOME },
@@ -114,23 +148,13 @@ class MainActivity : ComponentActivity() {
                         onStartQr = ::startQr,
                         onCloseQr = { qrController.stop(QrState.Idle); qrState = QrState.Idle },
                         onBack = { screen = Screen.HOME },
+                        showAddress = showQrAddress,
                     )
                     else -> HomeScreen(
                         status = status,
                         records = recordList,
                         voice = if (voiceEnabled) voicePhase else null,
-                        actions = HomeActions(
-                            classify = ::classify,
-                            confirm = ::confirm,
-                            correct = ::correct,
-                            askVoice = { DriveRecorderService.ask(this, it.id) },
-                            openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
-                            openExport = {
-                                exportState = ExportState()
-                                canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
-                                screen = Screen.EXPORT
-                            },
-                        ),
+                        actions = actions,
                     )
                 }
             }

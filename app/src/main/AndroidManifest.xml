@@ -32,6 +32,7 @@
 
     <application
         android:name=".BizDriveLogApp"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 

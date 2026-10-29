@@ -77,6 +77,8 @@ class DriveRecorderService : LifecycleService() {
 
     private var lastGear: Int? = null
     private var lastOdometerKm: Double? = null
+    /** 진행 중 운행의 출발 위치 (메모리 전용) */
+    private var tripStart: TripEnd.StartPoint? = null
 
     private var places: List<Place> = emptyList()
     private val alertIds = mutableMapOf<PlaceKind, String>()
@@ -237,19 +239,17 @@ class DriveRecorderService : LifecycleService() {
         val odometer = currentOdometer() ?: run { Log.e(TAG, "trip start skipped: no odometer"); return }
         val location = readLocation()
         val profile = ProfileStore(this).load()
-        // 시작 좌표는 종료 시 분류에 필요해서 일단 저장하고, 개인 운행으로 끝나면 지운다
+        // 출발 위치는 종료 시 분류에만 필요하므로 DB에 쓰지 않고 메모리에만 둔다 (개인 운행이면 끝까지 저장 안 됨)
         val trip = Trip(
             startedAt = System.currentTimeMillis(),
             startOdometerKm = odometer,
-            startLat = location?.latitude,
-            startLng = location?.longitude,
-            fromPlace = placeAt(location, "start"),
             userDept = profile.dept,
             userName = profile.userName,
         )
-        tripDao.insert(trip)
+        val id = tripDao.insert(trip)
+        tripStart = TripEnd.StartPoint(id, location?.latitude, location?.longitude, placeAt(location, "start"))
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = odometer) }
-        Log.i(TAG, "trip started at $odometer km from=${trip.fromPlace}")
+        Log.i(TAG, "trip started at $odometer km from=${tripStart?.place} (start point in memory only)")
         // 주행 중에는 화면 입력 없이 이 한 마디만
         stopVoice()
         if (voiceSettings.enabled) voiceJob = lifecycleScope.launch { voice().speak("운행 기록을 시작합니다") }
@@ -259,28 +259,13 @@ class DriveRecorderService : LifecycleService() {
         val odometer = currentOdometer() ?: open.startOdometerKm
         val location = readLocation()
         val to = placeAt(location, "end")
-        // 주행 중 Gleo로 이미 분류·목적을 말했으면 그 값을 유지한다
-        val preset = open.mode?.let { TripClassifier.Suggestion(it, open.modeBy, open.purpose) }
-        val suggestion = preset ?: TripClassifier.suggest(open.startedAt, open.fromPlace, to)
-        val personal = suggestion.mode == TripMode.PERSONAL
-        tripDao.update(
-            open.copy(
-                endedAt = System.currentTimeMillis(),
-                endOdometerKm = odometer,
-                startLat = open.startLat.takeUnless { personal },
-                startLng = open.startLng.takeUnless { personal },
-                endLat = location?.latitude.takeUnless { personal },
-                endLng = location?.longitude.takeUnless { personal },
-                fromPlace = open.fromPlace.takeUnless { personal },
-                toPlace = to.takeUnless { personal },
-                mode = suggestion.mode,
-                modeBy = suggestion.reason,
-                purpose = suggestion.purpose,
-            )
-        )
+        val start = tripStart
+        tripStart = null
+        val (closed, suggestion, preset) = TripEnd.close(open, start, System.currentTimeMillis(), odometer, location?.latitude, location?.longitude, to)
+        tripDao.update(closed)
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = null) }
-        Log.i(TAG, "trip ended at $odometer km (${odometer - open.startOdometerKm} km) ${open.fromPlace}->$to suggest=${suggestion.mode} (${suggestion.reason})")
-        if (preset == null) askAbout(open.id, suggestion.mode)
+        Log.i(TAG, "trip ended at $odometer km (${odometer - open.startOdometerKm} km) ${closed.fromPlace}->${closed.toPlace} start=${if (start?.tripId == open.id) "memory" else "missing"} suggest=${suggestion.mode} (${suggestion.reason})")
+        if (!preset) askAbout(open.id, suggestion.mode)
     }
 
     /** 정차 후 음성 질문. 인식 실패·무응답이면 아무것도 하지 않고 화면 카드 입력으로 넘어간다. */
