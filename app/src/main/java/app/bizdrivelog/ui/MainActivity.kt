@@ -21,8 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import app.bizdrivelog.BizDriveLogApp
 import app.bizdrivelog.BuildConfig
-import app.bizdrivelog.data.Correction
-import app.bizdrivelog.data.CorrectionField
+import app.bizdrivelog.data.TripActions
 import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
@@ -182,28 +181,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun classify(trip: Trip, mode: TripMode, modeBy: String, purpose: String, visitPlace: String) = dbAction {
-        database.tripDao().classify(trip.id, mode, modeBy, purpose.trim(), visitPlace.trim())
+        TripActions.classify(database.tripDao(), trip.id, mode, modeBy, purpose, visitPlace)
     }
 
     private fun confirm(trip: Trip) = dbAction {
-        database.tripDao().confirm(trip.id, System.currentTimeMillis())
+        TripActions.confirm(database.tripDao(), trip.id)
         Log.i(TAG, "trip ${trip.id} confirmed")
     }
 
     private fun correct(record: TripRecord, mode: TripMode, purpose: String, visitPlace: String, reason: String) = dbAction {
-        val now = System.currentTimeMillis()
-        val changes = listOfNotNull(
-            Triple(CorrectionField.MODE, record.effectiveMode?.name.orEmpty(), mode.name),
-            Triple(CorrectionField.PURPOSE, record.effectivePurpose, purpose.trim()),
-            Triple(CorrectionField.VISIT_PLACE, record.effectiveVisitPlace, visitPlace.trim()),
-        ).filter { (_, before, after) -> before != after }
-        if (changes.isEmpty() || reason.isBlank() || !record.trip.isConfirmed) return@dbAction
-        database.tripDao().insertCorrections(
-            changes.map { (field, before, after) ->
-                Correction(tripId = record.trip.id, field = field, before = before, after = after, reason = reason.trim(), createdAt = now)
-            }
-        )
-        Log.i(TAG, "trip ${record.trip.id} corrected: ${changes.map { it.first }} reason=$reason")
+        val changes = TripActions.correct(database.tripDao(), record, mode, purpose, visitPlace, reason)
+        if (changes.isNotEmpty()) Log.i(TAG, "trip ${record.trip.id} corrected: $changes reason=$reason")
     }
 
     /** 앱 전용 저장소(files/exports)에 xlsx를 만든다 */

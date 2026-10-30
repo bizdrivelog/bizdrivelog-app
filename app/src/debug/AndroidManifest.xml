@@ -5,5 +5,9 @@
         <receiver
             android:name=".export.DebugQrHostReceiver"
             android:exported="true" />
+        <!-- 디버그 빌드 전용: 시연 데이터 생성 (tools/demo_seed.py). 설정값 주입과 분류 확정 대행 -->
+        <receiver
+            android:name=".debug.DemoSeedReceiver"
+            android:exported="true" />
     </application>
 </manifest>

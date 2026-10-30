@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.bizdrivelog.data.Correction
+import app.bizdrivelog.data.TripActions
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.data.displayValue
@@ -108,7 +109,7 @@ fun ReviewScreen(record: TripRecord, position: Int, count: Int, voice: VoicePhas
             BigField(visit, { visit = it; save() }, "방문처 (거래처·장소 이름)", Modifier.fillMaxWidth())
         }
 
-        val canConfirm = mode != null && (mode != TripMode.BUSINESS || purpose.isNotBlank())
+        val canConfirm = TripActions.canConfirm(mode, purpose)
         Row(verticalAlignment = Alignment.CenterVertically) {
             BigButton(
                 "운행 확정",
