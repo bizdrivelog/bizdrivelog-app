@@ -57,8 +57,7 @@
 
 ## APK
 
-- 릴리스 APK: [`apk/BizDriveLog_비즈드라이브로그_release.apk`](apk/)
-- GitHub Release v1.0.0 첨부 파일: `BizDriveLog_BizDriveLog_release.apk` (같은 파일. GitHub가 첨부 파일 이름의 한글을 지워 영문 이름으로 올림)
+- 릴리스 APK: [`apk/BizDriveLog_비즈드라이브로그_release.apk`](apk/) (저장소를 받으면 함께 받아집니다)
 - 서명 설정: `~/.bizdrivelog-keys/keystore.properties`(또는 환경변수 `BIZDRIVELOG_KEYSTORE_PROPS`)가 있으면 그 키로 서명하고, 없으면 서명 없이 빌드됩니다. 키스토어는 저장소에 넣지 않습니다.
 
 ## 알려진 제약

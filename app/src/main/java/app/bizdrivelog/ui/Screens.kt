@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.bizdrivelog.data.CorrectionField
 import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
@@ -273,8 +274,18 @@ private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
             Text(timeRange(trip), style = Type.BodyS, color = Palette.TextSub)
         }
         Column(Modifier.weight(1f).padding(end = 24.dp)) {
-            Text(if (hasNoLocation(trip)) "구간 없음" else routeText(trip, record), style = Type.BodyL.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            subLine(record)?.let { Text(it, style = Type.BodyS, color = Palette.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            val route = if (hasNoLocation(trip)) "구간 없음" else routeText(trip, record)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(route, Modifier.weight(1f, fill = false), style = Type.BodyL.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // 방문처는 구간에 표시될 때만 그 옆에 표시
+                if (record.isCorrected(CorrectionField.VISIT_PLACE) && record.effectiveVisitPlace.isNotBlank() && record.effectiveVisitPlace in route) CorrectedMark()
+            }
+            subLine(record)?.let { sub ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(sub, Modifier.weight(1f, fill = false), style = Type.BodyS, color = Palette.TextSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (record.isCorrected(CorrectionField.PURPOSE) && sub == record.effectivePurpose) CorrectedMark()
+                }
+            }
         }
         Text(
             if (trip.endedAt == null) "운행 중" else distanceText(trip) ?: "-",
@@ -285,11 +296,16 @@ private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
         )
         Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (trip.endedAt != null) ModeTag(mode)
-            // 정정된 운행: 칩은 정정 값, 아래에 표시
-            if (record.corrections.isNotEmpty()) Text("정정됨", style = Type.Label, color = Palette.TextSub)
+            // 분류가 정정된 운행: 칩은 정정 값, 아래에 표시
+            if (record.isCorrected(CorrectionField.MODE)) Text("정정됨", style = Type.Label, color = Palette.TextSub)
         }
         Box(Modifier.width(130.dp), contentAlignment = Alignment.CenterEnd) { if (trip.endedAt != null) ConfirmState(trip.isConfirmed) }
     }
+}
+
+@Composable
+private fun CorrectedMark() {
+    Text("정정됨", Modifier.padding(start = 12.dp), style = Type.Label, color = Palette.TextSub, maxLines = 1)
 }
 
 private fun subLine(record: TripRecord): String? = when {
