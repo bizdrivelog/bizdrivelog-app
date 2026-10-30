@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,7 +16,26 @@ android {
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
+    }
+
+    // 릴리스 서명: 키스토어·비밀번호는 저장소 밖에 둔다 (기본 ~/.bizdrivelog-keys/keystore.properties, BIZDRIVELOG_KEYSTORE_PROPS로 변경).
+    // 파일이 없으면 서명 없이 빌드된다 (app-release-unsigned.apk)
+    val keystoreProps = file(System.getenv("BIZDRIVELOG_KEYSTORE_PROPS") ?: "${System.getProperty("user.home")}/.bizdrivelog-keys/keystore.properties")
+    val releaseSigning = if (keystoreProps.isFile) {
+        val props = Properties().apply { keystoreProps.inputStream().use { load(it) } }
+        signingConfigs.create("release") {
+            storeFile = file(props.getProperty("storeFile"))
+            storePassword = props.getProperty("storePassword")
+            keyAlias = props.getProperty("keyAlias")
+            keyPassword = props.getProperty("keyPassword")
+        }
+    } else null
+
+    buildTypes {
+        release {
+            signingConfig = releaseSigning
+        }
     }
 
     // AAOS Car API (android.car.jar in platforms/android-35/optional)

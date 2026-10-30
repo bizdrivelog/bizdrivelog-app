@@ -105,6 +105,8 @@ class MainActivity : ComponentActivity() {
                 openDetail = { tripId = it; screen = Screen.DETAIL },
                 openSettings = { settingsMessage = null; screen = Screen.SETTINGS },
                 openExport = {
+                    // 설정은 다른 경로(설정 화면 외)로도 바뀔 수 있으니 열 때마다 다시 읽는다 (머리 정보 경고가 옛 값으로 뜨지 않게)
+                    profile = profileStore.load()
                     exportState = ExportState()
                     canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
                     screen = Screen.EXPORT
@@ -164,6 +166,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleGleo(intent)
+    }
+
+    /** 다른 앱에서 돌아오거나 화면이 다시 켜질 때(내보내기 화면 재진입 포함) 머리 정보를 다시 읽는다 */
+    override fun onResume() {
+        super.onResume()
+        profile = profileStore.load()
     }
 
     /** 화면이 가려지거나 꺼지면 QR 서버도 닫는다 */
@@ -256,6 +264,7 @@ class MainActivity : ComponentActivity() {
                     val dao = database.tripDao()
                     val corrections = dao.getCorrections().groupBy { it.tripId }
                     val records = dao.getAll().map { TripRecord(it, corrections[it.id].orEmpty()) }
+                    profile = profileStore.load()
                     val ledger = Ledger.build(records, profile, LedgerPeriod.of(Gleo.periodKind(params)))
                     val file = withContext(Dispatchers.IO) { LedgerExporter.write(ledger, File(filesDir, "exports")) }
                     exportState = ExportState(file = file)

@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.bizdrivelog.data.Correction
+import app.bizdrivelog.data.CorrectionField
+import app.bizdrivelog.data.FieldView
 import app.bizdrivelog.data.TripActions
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
@@ -158,20 +160,8 @@ fun DetailScreen(record: TripRecord, onBack: () -> Unit, onCorrect: (TripRecord,
             )
         }
         Panel {
-            // 현재 구분(정정 반영)을 크게, 정정됐으면 원본은 작게 아래에
-            val current = record.effectiveMode
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("현재 구분", style = Type.Label, color = Palette.TextSub, modifier = Modifier.width(240.dp))
-                Text(
-                    (current?.label ?: "미분류") + if (record.corrections.isNotEmpty()) " (정정됨)" else "",
-                    style = Type.TitleM,
-                    color = current?.color ?: Palette.Pending,
-                )
-            }
-            if (current != trip.mode) {
-                Text("원본: ${trip.mode?.label ?: "미분류"}", style = Type.BodyS, color = Palette.TextSub, modifier = Modifier.padding(start = 240.dp))
-            }
-            InfoRow("목적" to trip.purpose.ifBlank { "-" }, "방문처" to trip.visitPlace.ifBlank { "-" })
+            // 구분·목적·방문처: 현재 값(정정 반영)을 크게, 그 항목이 정정됐으면 "정정됨"과 원본을 작게 아래에
+            record.fieldViews.forEach { view -> CorrectableRow(view) }
             InfoRow("분류 근거" to trip.modeBy.ifBlank { "-" }, "확정" to (trip.confirmedAt?.let { DATE_TIME.format(Date(it)) } ?: "미확정"))
             InfoRow("사용자" to listOfNotNull(trip.userDept, trip.userName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { "-" }, "" to "")
         }
@@ -189,6 +179,35 @@ fun DetailScreen(record: TripRecord, onBack: () -> Unit, onCorrect: (TripRecord,
                 correcting = false
             },
         )
+    }
+}
+
+@Composable
+private fun CorrectableRow(view: FieldView) {
+    val mode = view.current.takeIf { view.field == CorrectionField.MODE && it.isNotEmpty() }?.let { TripMode.valueOf(it) }
+    fun shown(value: String) = when {
+        view.field == CorrectionField.MODE -> value.takeIf { it.isNotEmpty() }?.let { TripMode.valueOf(it).label } ?: "미분류"
+        else -> value.ifBlank { "-" }
+    }
+    Row {
+        Text(view.field.label, style = Type.Label, color = Palette.TextSub, modifier = Modifier.width(240.dp).padding(top = 10.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    shown(view.current),
+                    style = if (view.field == CorrectionField.MODE) Type.TitleM else Type.TitleS,
+                    color = when {
+                        view.field != CorrectionField.MODE -> Palette.Text
+                        else -> mode?.color ?: Palette.Pending
+                    },
+                )
+                if (view.corrected) {
+                    Spacer(Modifier.width(20.dp))
+                    Text("정정됨", style = Type.Label, color = Palette.Pending)
+                }
+            }
+            view.original?.let { Text("원본: ${shown(it)}", style = Type.BodyS, color = Palette.TextSub) }
+        }
     }
 }
 

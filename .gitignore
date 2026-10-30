@@ -6,3 +6,6 @@ build/
 *.iml
 screenshots/tmp/
 .kotlin/
+*.jks
+.DS_Store
+__pycache__/
