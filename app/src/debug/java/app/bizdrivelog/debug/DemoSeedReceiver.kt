@@ -1,6 +1,8 @@
 package app.bizdrivelog.debug
 
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
@@ -17,6 +19,7 @@ import app.bizdrivelog.voice.VoiceSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 디버그 빌드 전용: 시연 데이터 생성(tools/demo_seed.py)에서 사람이 화면에서 하는 단계만 대신한다.
@@ -29,6 +32,7 @@ import kotlinx.coroutines.launch
  *  - place:   kind(HOME|OFFICE), lat, lng (평문)
  *  - voice:   --ez enabled true|false
  *  - confirm: 가장 최근 미확정 운행을 분류 카드처럼 저장 후 확정. mode(평문), purpose, visit (생략 시 제안값 유지)
+ *  - clip:    text (base64). 클립보드에 넣음
  *  - correct: --el tripId N, mode(평문, 생략 시 현재값), purpose, visit, reason
  */
 class DemoSeedReceiver : BroadcastReceiver() {
@@ -100,6 +104,11 @@ class DemoSeedReceiver : BroadcastReceiver() {
                 )
                 check(changes.isNotEmpty()) { "trip $id: nothing corrected (not confirmed, no change or no reason)" }
                 "trip=$id changes=$changes"
+            }
+            // 영상 촬영용: adb로 한글을 입력할 수 없어 클립보드에 넣고 KEYCODE_PASTE로 붙인다
+            "clip" -> withContext(Dispatchers.Main) {
+                app.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("seed", intent.text("text")))
+                "clip set"
             }
             else -> error("unknown op $op")
         }

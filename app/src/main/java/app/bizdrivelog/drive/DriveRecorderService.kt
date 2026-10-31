@@ -110,7 +110,9 @@ class DriveRecorderService : LifecycleService() {
         val database = (application as BizDriveLogApp).database
         tripDao = database.tripDao()
         placeDao = database.placeDao()
-        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // 프로세스가 죽은 뒤 백그라운드에서 재시작되면 거부될 수 있다. 앱을 죽이지 않고 기록을 이어간다 (앱을 열면 다시 포그라운드가 됨)
+        runCatching { startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+            .onFailure { Log.w(TAG, "startForeground refused, running in background: ${it.message}") }
 
         fusedLocation = runCatching { FusedLocation(applicationContext).also { it.initialize() } }
             .onFailure { Log.e(TAG, "FusedLocation unavailable", it) }
@@ -123,6 +125,9 @@ class DriveRecorderService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (intent != null) {
+            runCatching { startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+        }
         when (intent?.action) {
             ACTION_ASK -> intent.getLongExtra(EXTRA_TRIP_ID, -1).takeIf { it > 0 }?.let { id ->
                 lifecycleScope.launch { tripDao.find(id)?.let { askAbout(it.id, it.mode) } }
