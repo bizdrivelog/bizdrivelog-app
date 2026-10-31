@@ -75,7 +75,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        DriveRecorderService.start(this)
         connectUxRestrictions()
         requestLocationPermission()
         profile = profileStore.load()
@@ -171,6 +170,8 @@ class MainActivity : ComponentActivity() {
     /** 다른 앱에서 돌아오거나 화면이 다시 켜질 때(내보내기 화면 재진입 포함) 머리 정보를 다시 읽는다 */
     override fun onResume() {
         super.onResume()
+        // 화면이 보이는 동안은 포그라운드 서비스 시작이 허용된다. 서비스가 멈췄거나 일반 서비스로 떨어졌으면 여기서 되살린다
+        DriveRecorderService.start(this)
         profile = profileStore.load()
     }
 
@@ -322,11 +323,14 @@ class MainActivity : ComponentActivity() {
 
     private fun connectUxRestrictions() {
         runCatching {
-            car = Car.createCar(applicationContext)
-            val manager = car?.getCarManager(Car.CAR_UX_RESTRICTION_SERVICE) as? CarUxRestrictionsManager
-            uxRestrictionsManager = manager
-            manager?.currentCarUxRestrictions?.let(::apply)
-            manager?.registerListener(::apply)
+            // 리스너 없이 만들면 CarService가 죽을 때 앱 프로세스도 같이 종료된다
+            car = Car.createCar(applicationContext, null, Car.CAR_WAIT_TIMEOUT_DO_NOT_WAIT) { connected, ready ->
+                if (!ready) return@createCar
+                val manager = connected.getCarManager(Car.CAR_UX_RESTRICTION_SERVICE) as? CarUxRestrictionsManager
+                uxRestrictionsManager = manager
+                manager?.currentCarUxRestrictions?.let(::apply)
+                manager?.registerListener(::apply)
+            }
         }.onFailure { Log.e(TAG, "CarUxRestrictionsManager unavailable", it) }
     }
 

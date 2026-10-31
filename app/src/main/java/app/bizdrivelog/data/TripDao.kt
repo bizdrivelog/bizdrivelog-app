@@ -36,6 +36,10 @@ interface TripDao {
     @Query("SELECT * FROM trips WHERE endedAt IS NULL ORDER BY id DESC LIMIT 1")
     suspend fun findOpen(): Trip?
 
+    /** 지금까지 기록으로 남은 마지막 계기판 값 (기록 공백을 두 번 만들지 않기 위해) */
+    @Query("SELECT MAX(endOdometerKm) FROM trips")
+    suspend fun maxEndOdometer(): Double?
+
     @Query("SELECT * FROM trips WHERE id = :id")
     suspend fun find(id: Long): Trip?
 

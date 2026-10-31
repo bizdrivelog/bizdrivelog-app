@@ -1,7 +1,10 @@
 package app.bizdrivelog.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+
+const val RECORD_GAP_LABEL = "기록 공백"
 
 enum class TripMode(val label: String) {
     BUSINESS("업무"),
@@ -36,6 +39,8 @@ data class Trip(
     /** ④ 사용자(차량 이용자) — 운행 시작 시점 설정값을 남겨 나중에 설정을 바꿔도 기록이 바뀌지 않게 한다 */
     val userDept: String? = null,
     val userName: String? = null,
+    /** 기록 공백: 서비스가 멈춘 동안 계기판이 늘어난 구간. 시작·종료 시각은 정확하지 않고 분류는 사용자가 확인한다 */
+    @ColumnInfo(defaultValue = "0") val recordGap: Boolean = false,
 ) {
     /** 계기판 값 이상: 종료 누적거리가 시작보다 작다 (계기판 초기화·교체 등). 거리를 알 수 없어 집계에서 뺀다 */
     val odometerAnomaly: Boolean get() = endOdometerKm != null && endOdometerKm < startOdometerKm

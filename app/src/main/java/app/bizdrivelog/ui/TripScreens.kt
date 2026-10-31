@@ -32,6 +32,7 @@ import app.bizdrivelog.data.CorrectionField
 import app.bizdrivelog.data.FieldView
 import app.bizdrivelog.data.TripActions
 import app.bizdrivelog.data.TripMode
+import app.bizdrivelog.data.RECORD_GAP_LABEL
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.data.displayValue
 import app.bizdrivelog.voice.VoicePhase
@@ -66,6 +67,9 @@ fun ReviewScreen(record: TripRecord, position: Int, count: Int, voice: VoicePhas
             "${DATE_SHORT.format(Date(trip.startedAt))} ${timeRange(trip)}  ·  ${routeText(trip)}  ·  ${distanceText(trip) ?: "-"}",
             style = Type.TitleS,
         )
+        if (trip.recordGap) {
+            Text("$RECORD_GAP_LABEL: 앱이 멈춘 동안 계기판이 늘어난 구간입니다. 시각은 정확하지 않습니다. 분류를 확인해 주세요", style = Type.BodyM, color = Palette.Pending)
+        }
         if (voice != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -152,6 +156,7 @@ fun DetailScreen(record: TripRecord, onBack: () -> Unit, onCorrect: (TripRecord,
             if (trip.isConfirmed) BigButton("정정 요청", { correcting = true })
         }
         Panel {
+            if (trip.recordGap) Text("$RECORD_GAP_LABEL (서비스 중단): 시각은 정확하지 않고 계기판 값은 원본입니다", style = Type.BodyM, color = Palette.Pending)
             InfoRow("날짜" to DATE.format(Date(trip.startedAt)), "시각" to timeRange(trip))
             InfoRow("구간" to routeText(trip), "주행거리" to (distanceText(trip) ?: "-"))
             InfoRow(

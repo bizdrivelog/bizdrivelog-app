@@ -47,6 +47,7 @@ import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceKind
 import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripMode
+import app.bizdrivelog.data.RECORD_GAP_LABEL
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.drive.DriveStatus
 import app.bizdrivelog.export.Ledger
@@ -309,6 +310,7 @@ private fun CorrectedMark() {
 }
 
 private fun subLine(record: TripRecord): String? = when {
+    record.trip.recordGap -> listOf(RECORD_GAP_LABEL, record.effectivePurpose).filter { it.isNotBlank() }.joinToString(" · ")
     record.effectiveMode == TripMode.PERSONAL -> "개인 운행 · 위치 미저장"
     hasNoLocation(record.trip) -> "위치 미저장 (원본 개인 운행)"
     else -> record.effectivePurpose.takeIf { it.isNotBlank() }
@@ -438,6 +440,7 @@ fun routeText(trip: Trip, record: TripRecord? = null): String {
     val visit = (record?.effectiveVisitPlace ?: trip.visitPlace).takeIf { mode == TripMode.BUSINESS && it.isNotBlank() }
     // 개인 운행으로 끝난 운행은 위치가 없다 (나중에 정정으로 분류가 바뀌어도)
     if (hasNoLocation(trip)) return "위치 미저장"
+    if (trip.recordGap) return "구간 알 수 없음"
     val from = trip.fromPlace?.label
     if (trip.endedAt == null) return "${from ?: "출발지"} →"
     val to = trip.toPlace?.label

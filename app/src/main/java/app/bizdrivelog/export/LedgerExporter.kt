@@ -2,6 +2,7 @@ package app.bizdrivelog.export
 
 import app.bizdrivelog.data.CorrectionField
 import app.bizdrivelog.data.LedgerProfile
+import app.bizdrivelog.data.RECORD_GAP_LABEL
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.data.displayValue
@@ -107,6 +108,7 @@ class Ledger(
             append("[${record.effectiveMode?.label ?: "미분류"}]")
             val detail = listOf(record.effectivePurpose, record.effectiveVisitPlace).filter { it.isNotBlank() }.joinToString(" · ")
             if (detail.isNotEmpty()) append(" $detail")
+            if (record.trip.recordGap) append(" ($RECORD_GAP_LABEL)")
             if (record.corrections.isNotEmpty()) append(" (정정 ${record.corrections.size}건)")
         }
     }
@@ -287,7 +289,9 @@ object LedgerExporter {
             append(listOf(p.company, p.bizNo, p.carModel, p.plate, ledger.period.formText).joinToString("|")).append('\n')
             ledger.rows.forEach { row ->
                 val t = row.record.trip
-                append(listOf(t.id, t.startedAt, t.endedAt, t.startOdometerKm, t.endOdometerKm, t.mode, t.purpose, t.visitPlace, t.confirmedAt, row.dept, row.userName).joinToString("|")).append('\n')
+                append(listOf(t.id, t.startedAt, t.endedAt, t.startOdometerKm, t.endOdometerKm, t.mode, t.purpose, t.visitPlace, t.confirmedAt, row.dept, row.userName).joinToString("|"))
+                if (t.recordGap) append("|gap")
+                append('\n')
             }
             ledger.corrections.forEach { c ->
                 append(listOf(c.id, c.tripId, c.field, c.before, c.after, c.reason, c.createdAt).joinToString("|")).append('\n')

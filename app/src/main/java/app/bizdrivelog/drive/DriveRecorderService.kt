@@ -31,6 +31,7 @@ import app.bizdrivelog.data.Place
 import app.bizdrivelog.data.PlaceDao
 import app.bizdrivelog.data.PlaceKind
 import app.bizdrivelog.data.ProfileStore
+import app.bizdrivelog.data.RECORD_GAP_LABEL
 import app.bizdrivelog.data.Trip
 import app.bizdrivelog.data.TripDao
 import app.bizdrivelog.data.TripMode
@@ -38,11 +39,13 @@ import app.bizdrivelog.ui.MainActivity
 import app.bizdrivelog.voice.VoiceAnswer
 import app.bizdrivelog.voice.VoiceGuide
 import app.bizdrivelog.voice.VoiceSettings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
@@ -61,6 +64,7 @@ class DriveRecorderService : LifecycleService() {
         data class Places(val places: List<Place>) : Event
         data class FenceRegistered(val alertId: String, val kind: PlaceKind) : Event
         data class Fence(val kind: PlaceKind, val inside: Boolean) : Event
+        data object CarReady : Event
     }
 
     private val events = Channel<Event>(Channel.UNLIMITED)
@@ -77,6 +81,10 @@ class DriveRecorderService : LifecycleService() {
 
     private var lastGear: Int? = null
     private var lastOdometerKm: Double? = null
+    private val stateStore by lazy { DriveStateStore(this) }
+    private var savedState: LastDriveState? = null
+    /** 서비스 시작 후 첫 기어 값을 받아 저장된 상태와 비교했는지 */
+    private var recovered = false
     /** 진행 중 운행의 출발 위치 (메모리 전용) */
     private var tripStart: TripEnd.StartPoint? = null
 
@@ -110,9 +118,7 @@ class DriveRecorderService : LifecycleService() {
         val database = (application as BizDriveLogApp).database
         tripDao = database.tripDao()
         placeDao = database.placeDao()
-        // 프로세스가 죽은 뒤 백그라운드에서 재시작되면 거부될 수 있다. 앱을 죽이지 않고 기록을 이어간다 (앱을 열면 다시 포그라운드가 됨)
-        runCatching { startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
-            .onFailure { Log.w(TAG, "startForeground refused, running in background: ${it.message}") }
+        enterForeground()
 
         fusedLocation = runCatching { FusedLocation(applicationContext).also { it.initialize() } }
             .onFailure { Log.e(TAG, "FusedLocation unavailable", it) }
@@ -125,9 +131,7 @@ class DriveRecorderService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        if (intent != null) {
-            runCatching { startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
-        }
+        if (intent != null) enterForeground()
         when (intent?.action) {
             ACTION_ASK -> intent.getLongExtra(EXTRA_TRIP_ID, -1).takeIf { it > 0 }?.let { id ->
                 lifecycleScope.launch { tripDao.find(id)?.let { askAbout(it.id, it.mode) } }
@@ -135,6 +139,36 @@ class DriveRecorderService : LifecycleService() {
             ACTION_STOP_VOICE -> stopVoice()
         }
         return START_STICKY
+    }
+
+    /**
+     * 시작 허용 경로(앱 화면 진입, 부팅 완료, 앱 업데이트)에서는 성공한다. 시스템이 프로세스를 다시 띄운 경우 등 백그라운드에서 거부되면
+     * 앱을 죽이지 않고 일반 서비스로 남아 저장된 상태와 대조를 마치고, 사용자에게 앱을 열어 달라고 알린다.
+     * 일반 서비스는 시스템이 곧 멈출 수 있으나 상태가 저장돼 있어 다음 시작 때 빠진 구간을 복원한다.
+     */
+    private fun enterForeground() {
+        runCatching { startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+            .onSuccess { getSystemService(NotificationManager::class.java).cancel(ALERT_NOTIFICATION_ID) }
+            .onFailure {
+                Log.w(TAG, "startForeground refused, running in background: ${it.message}")
+                runCatching { notifyRefused() }
+            }
+    }
+
+    private fun notifyRefused() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(NotificationChannel(ALERT_CHANNEL_ID, "운행 기록 알림", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        manager.notify(
+            ALERT_NOTIFICATION_ID,
+            Notification.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText("운행 기록이 멈출 수 있습니다. 앱을 열어 주세요")
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     override fun onDestroy() {
@@ -163,13 +197,27 @@ class DriveRecorderService : LifecycleService() {
         }
         vehicle?.getOdometer()?.registerDistanceDriven(distanceListener)
 
-        car = Car.createCar(applicationContext)
-        propertyManager = car?.getCarManager(Car.PROPERTY_SERVICE) as? CarPropertyManager
+        savedState = withContext(Dispatchers.IO) { stateStore.load() }
+        // 리스너 없이 만들면 CarService가 죽을 때 이 프로세스도 같이 종료되고, 그 재시작은 포그라운드 시작이 거부된다 (9단계).
+        // 리스너를 주면 프로세스는 살아 있고 CarService가 돌아올 때마다 다시 구독한다
+        car = Car.createCar(applicationContext, null, Car.CAR_WAIT_TIMEOUT_DO_NOT_WAIT) { connected, ready ->
+            if (ready) {
+                propertyManager = connected.getCarManager(Car.PROPERTY_SERVICE) as? CarPropertyManager
+                events.trySend(Event.CarReady)
+            } else {
+                Log.w(TAG, "car service disconnected")
+                propertyManager = null
+            }
+        }
+    }
+
+    private fun subscribeGear() {
         val manager = propertyManager ?: run { Log.e(TAG, "CarPropertyManager unavailable"); return }
         runCatching { manager.getProperty<Int>(VehiclePropertyIds.GEAR_SELECTION, 0)?.value }
-            .onSuccess { gear -> gear?.let { events.send(Event.Gear(it)) } }
+            .onSuccess { gear -> gear?.let { events.trySend(Event.Gear(it)) } }
             .onFailure { Log.e(TAG, "gear read failed", it) }
-        manager.registerCallback(gearCallback, VehiclePropertyIds.GEAR_SELECTION, CarPropertyManager.SENSOR_RATE_ONCHANGE)
+        runCatching { manager.registerCallback(gearCallback, VehiclePropertyIds.GEAR_SELECTION, CarPropertyManager.SENSOR_RATE_ONCHANGE) }
+            .onFailure { Log.e(TAG, "gear subscribe failed", it) }
     }
 
     private suspend fun handle(event: Event) {
@@ -180,7 +228,10 @@ class DriveRecorderService : LifecycleService() {
                 lastOdometerKm = event.km
                 DriveState.update { it.copy(odometerKm = event.km) }
                 Log.i(TAG, "odometer ${event.km} km")
+                // 첫 기어 값으로 대조를 끝내기 전에 저장하면 비교할 이전 상태가 지워진다
+                if (recovered && DriveStateSave.shouldSave(savedState, event.km, System.currentTimeMillis())) saveState()
             }
+            Event.CarReady -> subscribeGear()
             is Event.Gear -> {
                 if (event.value == lastGear) return
                 val previous = lastGear
@@ -188,6 +239,7 @@ class DriveRecorderService : LifecycleService() {
                 DriveState.update { it.copy(gear = event.value) }
                 Log.i(TAG, "gear $previous -> ${event.value}")
                 onGearChanged(previous, event.value)
+                if (recovered) saveState()
             }
             is Event.Places -> registerFences(event.places)
             is Event.FenceRegistered -> {
@@ -229,12 +281,64 @@ class DriveRecorderService : LifecycleService() {
         }
     }
 
-    private suspend fun onGearChanged(previous: Int?, gear: Int) {
+    /** 기어·계기판·시각 저장. 기어가 바뀔 때와 계기판이 일정량 늘었을 때만 (DriveStateSave) */
+    private suspend fun saveState() {
+        val km = lastOdometerKm ?: return
+        val state = LastDriveState(km, System.currentTimeMillis(), lastGear)
+        savedState = state
+        withContext(Dispatchers.IO) { stateStore.save(state) }
+    }
+
+    /** 서비스 시작 후 첫 기어 값으로 저장된 상태와 현재 상태를 비교해, 멈춰 있던 동안의 일을 기록에 맞춘다 */
+    private suspend fun recover(moving: Boolean) {
         val open = tripDao.findOpen()
+        val now = System.currentTimeMillis()
+        val plan = Recovery.plan(savedState, open, moving, lastOdometerKm, tripDao.maxEndOdometer(), now)
+        Log.i(TAG, "recover saved=$savedState open=${open?.id} moving=$moving now=$lastOdometerKm -> $plan")
+        plan.close?.let { end -> open?.let { closeRecovered(it, end) } }
+        plan.gap?.let { gap ->
+            val profile = ProfileStore(this).load()
+            val id = tripDao.insert(
+                Trip(
+                    startedAt = gap.fromAt,
+                    startOdometerKm = gap.fromKm,
+                    endedAt = gap.toAt,
+                    endOdometerKm = gap.toKm,
+                    modeBy = "$RECORD_GAP_LABEL (서비스 중단) · 분류 확인 필요",
+                    userDept = profile.dept,
+                    userName = profile.userName,
+                    recordGap = true,
+                )
+            )
+            Log.i(TAG, "record gap trip $id ${gap.fromKm} -> ${gap.toKm} km")
+        }
+    }
+
+    /** 멈추기 전 마지막 저장 값으로 닫는다. 현재 위치는 그때 위치가 아니므로 쓰지 않고, 음성으로 묻지도 않는다 */
+    private suspend fun closeRecovered(open: Trip, end: Recovery.End) {
+        if (TripEnd.isParkingMove(open, end.at, end.km)) {
+            tripDao.discardOpen(open.id)
+            Log.i(TAG, "trip dropped (parking move, recovered)")
+        } else {
+            val (closed, suggestion) = TripEnd.close(open, tripStart, end.at, end.km, null, null, null)
+            tripDao.update(closed)
+            Log.i(TAG, "trip ended at ${end.km} km (recovered) suggest=${suggestion.mode}")
+        }
+        tripStart = null
+        DriveState.update { it.copy(tripStartOdometerKm = null) }
+    }
+
+    private suspend fun onGearChanged(previous: Int?, gear: Int) {
         val moving = gear != VehicleGear.GEAR_PARK && gear != VehicleGear.GEAR_UNKNOWN
+        val first = !recovered && gear != VehicleGear.GEAR_UNKNOWN
+        if (first) {
+            recover(moving)
+            recovered = true
+        }
+        val open = tripDao.findOpen()
         when {
-            // previous == null: 서비스가 주행 중에 시작된 경우도 운행으로 잡는다
-            moving && open == null && (previous == null || previous == VehicleGear.GEAR_PARK) -> startTrip()
+            // first: 서비스가 주행 중에 시작된 경우도 운행으로 잡는다
+            moving && open == null && (first || previous == VehicleGear.GEAR_PARK) -> startTrip()
             moving && open != null -> DriveState.update { it.copy(tripStartOdometerKm = open.startOdometerKm) }
             gear == VehicleGear.GEAR_PARK && open != null -> endTrip(open)
         }
@@ -384,6 +488,8 @@ class DriveRecorderService : LifecycleService() {
         private const val TAG = "BizDriveLog"
         private const val CHANNEL_ID = "drive_recorder"
         private const val NOTIFICATION_ID = 1
+        private const val ALERT_CHANNEL_ID = "drive_recorder_alert"
+        private const val ALERT_NOTIFICATION_ID = 2
 
         private const val ACTION_ASK = "app.bizdrivelog.action.ASK_VOICE"
         private const val ACTION_STOP_VOICE = "app.bizdrivelog.action.STOP_VOICE"
