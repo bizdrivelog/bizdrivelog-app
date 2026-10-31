@@ -16,6 +16,10 @@ interface TripDao {
     @Update
     suspend fun update(trip: Trip)
 
+    /** 주차 조작으로 판단된 진행 중 운행을 지운다 (끝났거나 확정된 운행은 지우지 않음) */
+    @Query("DELETE FROM trips WHERE id = :id AND endedAt IS NULL AND confirmedAt IS NULL")
+    suspend fun deleteOpen(id: Long)
+
     @Query("SELECT * FROM trips WHERE endedAt IS NULL ORDER BY id DESC LIMIT 1")
     suspend fun findOpen(): Trip?
 

@@ -16,6 +16,21 @@ object TripEnd {
 
     data class Result(val trip: Trip, val suggestion: TripClassifier.Suggestion, val preset: Boolean)
 
+    /** 계기판 최소 단위가 0.1km라 이보다 작으면(표시 0.0km) 움직이지 않은 것으로 본다 */
+    const val MIN_TRIP_KM = 0.1
+    /** 주차 자리 옮기기: 1분 미만이면서 0.3km 미만. 시간만으로 버리면 실제 이동 거리가 기록에서 빠진다 */
+    const val PARKING_MOVE_MS = 60_000L
+    const val PARKING_MOVE_KM = 0.3
+
+    /**
+     * P→R→P, P→D→P처럼 이동이 거의 없는 조작인지. 맞으면 운행으로 남기지 않는다.
+     * 계기판 값 이상(종료 < 시작)은 조작이 아니라 표시해야 할 문제이므로 해당하지 않는다.
+     */
+    fun isParkingMove(open: Trip, endedAt: Long, odometerKm: Double): Boolean {
+        val km = open.copy(endOdometerKm = odometerKm).distanceKm ?: return false
+        return km < MIN_TRIP_KM || (endedAt - open.startedAt < PARKING_MOVE_MS && km < PARKING_MOVE_KM)
+    }
+
     fun close(
         open: Trip,
         start: StartPoint?,

@@ -256,12 +256,23 @@ class DriveRecorderService : LifecycleService() {
     }
 
     private suspend fun endTrip(open: Trip) {
-        val odometer = currentOdometer() ?: open.startOdometerKm
+        val endedAt = System.currentTimeMillis()
+        val measured = currentOdometer()
+        // 계기판을 못 읽은 경우는 이동 여부를 알 수 없으므로 버리지 않는다
+        if (measured != null && TripEnd.isParkingMove(open, endedAt, measured)) {
+            tripDao.deleteOpen(open.id)
+            tripStart = null
+            DriveState.update { it.copy(odometerKm = measured, tripStartOdometerKm = null) }
+            Log.i(TAG, "trip dropped (parking move) ${measured - open.startOdometerKm} km ${(endedAt - open.startedAt) / 1000}s")
+            stopVoice()
+            return
+        }
+        val odometer = measured ?: open.startOdometerKm
         val location = readLocation()
         val to = placeAt(location, "end")
         val start = tripStart
         tripStart = null
-        val (closed, suggestion, preset) = TripEnd.close(open, start, System.currentTimeMillis(), odometer, location?.latitude, location?.longitude, to)
+        val (closed, suggestion, preset) = TripEnd.close(open, start, endedAt, odometer, location?.latitude, location?.longitude, to)
         tripDao.update(closed)
         DriveState.update { it.copy(odometerKm = odometer, tripStartOdometerKm = null) }
         Log.i(TAG, "trip ended at $odometer km (${odometer - open.startOdometerKm} km) ${closed.fromPlace}->${closed.toPlace} start=${if (start?.tripId == open.id) "memory" else "missing"} suggest=${suggestion.mode} (${suggestion.reason})")
