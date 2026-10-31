@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import ai.pleos.playground.stt.constant.ErrorType as SttError
@@ -49,6 +50,7 @@ class VoiceGuide(context: Context) {
 
     @Volatile private var speaking: CompletableDeferred<Boolean>? = null
     @Volatile private var listening: CompletableDeferred<String?>? = null
+    @Volatile private var recognizerReady: CompletableDeferred<Unit>? = null
     @Volatile private var lastPartial = ""
     @Volatile private var maxRms = 0.0
     /** 이전 요청의 stop/done 콜백이 늦게 와서 새 요청을 끝내지 않도록, 새 요청의 onStart 전에는 무시한다 */
@@ -67,7 +69,7 @@ class VoiceGuide(context: Context) {
     }
 
     private val sttListener = object : ResultListener {
-        override fun onReady() { Log.i(TAG, "stt ready") }
+        override fun onReady() { Log.i(TAG, "stt ready"); recognizerReady?.complete(Unit) }
         override fun onStartedRecognition() = Unit
         override fun onUpdated(stt: String, completed: Boolean) {
             if (stt.isNotBlank()) lastPartial = stt
@@ -133,13 +135,22 @@ class VoiceGuide(context: Context) {
         if (withTimeoutOrNull(INIT_TIMEOUT_MS) { sttReady.await() } != true) return null
         lastPartial = ""
         maxRms = 0.0
+        val ready = CompletableDeferred<Unit>().also { recognizerReady = it }
         val result = CompletableDeferred<String?>().also { listening = it }
         VoiceState.set(VoicePhase.Listening())
         Log.i(TAG, "stt listening")
         runCatching { stt.request() }.onFailure { Log.w(TAG, "stt request failed", it); result.complete(null) }
+        // 듣기 제한은 인식기가 준비된 뒤부터 센다. 인식 엔진 시작이 늦어도 답할 시간을 줄이지 않으려는 것
+        withTimeoutOrNull(READY_TIMEOUT_MS) {
+            select<Unit> {
+                ready.onAwait { }
+                result.onAwait { }
+            }
+        }
         val text = withTimeoutOrNull(LISTEN_TIMEOUT_MS) { result.await() } ?: lastPartial.ifBlank { null }
         runCatching { stt.stop() }
         listening = null
+        recognizerReady = null
         Log.i(TAG, "stt: ${text ?: "(no answer)"} maxRms=$maxRms")
         VoiceState.set(if (text != null) VoicePhase.Heard(text) else VoicePhase.Idle)
         return text
@@ -165,6 +176,7 @@ class VoiceGuide(context: Context) {
         private const val TAG = "BizDriveLog"
         private const val INIT_TIMEOUT_MS = 5_000L
         private const val SPEAK_TIMEOUT_MS = 15_000L
+        private const val READY_TIMEOUT_MS = 20_000L
         private const val LISTEN_TIMEOUT_MS = 10_000L
     }
 }
