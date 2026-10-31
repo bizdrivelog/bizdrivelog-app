@@ -8,6 +8,9 @@ import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+internal const val DELETE_OPEN = "DELETE FROM trips WHERE id = :id AND endedAt IS NULL AND confirmedAt IS NULL"
+internal const val REWIND_NUMBER = "UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM trips) WHERE name = 'trips'"
+
 @Dao
 interface TripDao {
     @Insert
@@ -17,8 +20,18 @@ interface TripDao {
     suspend fun update(trip: Trip)
 
     /** 주차 조작으로 판단된 진행 중 운행을 지운다 (끝났거나 확정된 운행은 지우지 않음) */
-    @Query("DELETE FROM trips WHERE id = :id AND endedAt IS NULL AND confirmedAt IS NULL")
+    @Query(DELETE_OPEN)
     suspend fun deleteOpen(id: Long)
+
+    @Query(REWIND_NUMBER)
+    suspend fun rewindTripNumber()
+
+    /** 버린 운행의 번호는 쓰지 않은 것으로 되돌린다. 번호가 건너뛰면 기록을 삭제한 것처럼 보이기 때문 */
+    @Transaction
+    suspend fun discardOpen(id: Long) {
+        deleteOpen(id)
+        rewindTripNumber()
+    }
 
     @Query("SELECT * FROM trips WHERE endedAt IS NULL ORDER BY id DESC LIMIT 1")
     suspend fun findOpen(): Trip?
