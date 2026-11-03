@@ -215,7 +215,7 @@ object LedgerExporter {
             add("A$foot", "※ 미확정 운행 ${ledger.pending.size}건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다.", Style.NOTE)
             foot++
         }
-        add("A$foot", "검증 코드: ${verifyCode(ledger)}  (원본 대조용 · 이 파일에 담긴 운행·정정 이력의 SHA-256)", Style.NOTE)
+        add("A$foot", "파일 식별값: ${fileId(ledger)}  (이 파일에 담긴 운행·정정 이력으로 계산한 값 · 같은 기록에서 내보낸 파일인지 구분하는 용도이며 위변조를 증명하지는 않습니다)", Style.NOTE)
 
         listOf(1, 2).forEach { ws.rowHeight(it - 1, 22.0) }
         listOf(9, 10, 11, tl).forEach { ws.rowHeight(it - 1, 24.0) }
@@ -282,8 +282,8 @@ object LedgerExporter {
         return listOf(r0, c0, r1, c1)
     }
 
-    /** 원본 대조용 검증 코드: 머리 정보 + 원본 운행 + 정정 이력의 SHA-256 앞 64비트 */
-    fun verifyCode(ledger: Ledger): String {
+    /** 파일 식별값: 머리 정보 + 원본 운행 + 정정 이력의 SHA-256 앞 64비트. 파일 구분용이며 위변조 증명 수단이 아님 */
+    fun fileId(ledger: Ledger): String {
         val p = ledger.profile
         val payload = buildString {
             append(listOf(p.company, p.bizNo, p.carModel, p.plate, ledger.period.formText).joinToString("|")).append('\n')
