@@ -32,15 +32,34 @@
 
 ## 실행 방법
 
-1. Android Studio에서 SDK Manager로 **Pleos Connect v2.1.0 시스템 이미지**(`system-images;android-34;pleos_car_emulator;arm64-v8a`)를 설치하고 AVD를 만듭니다.
-2. 에뮬레이터를 실행합니다: `$ANDROID_HOME/emulator/emulator -avd <AVD 이름>`
-3. 빌드·설치합니다.
+공식 안내: [Pleos Connect Emulator 설치 및 실행](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/setup-connect-sdk-emulator) · [Virtual Console 셋업 가이드](https://document.pleos.ai/docs/connect/guide/getting-started/application-development/use-vehicle-emulator)
+
+### 준비
+
+- **에뮬레이터 이미지와 PC**: Pleos가 Mac용으로 제공하는 이미지는 arm64 전용이라 Mac에서는 Apple Silicon(M 시리즈)이 필요합니다. Windows·Linux용으로는 별도의 x86_64 이미지가 제공됩니다. 이 프로젝트는 Apple Silicon Mac + arm64 이미지에서만 확인했습니다.
+- **빌드**: JDK 17이 필요합니다. 이 프로젝트의 Gradle 8.10.2는 최신 Android Studio에 내장된 JDK(25)로 실행하면 실패할 수 있으니, Android Studio의 Gradle JDK 또는 터미널의 `JAVA_HOME`을 JDK 17로 지정합니다 ([Android Studio의 JDK 설정](https://developer.android.com/build/jdks), [Gradle 호환 버전](https://docs.gradle.org/current/userguide/compatibility.html)).
+- Pleos SDK(`ai.pleos.playground:*`)는 `settings.gradle.kts`에 등록된 Pleos Maven 저장소에서 로그인 없이 받아집니다.
+
+### 순서
+
+1. **Pleos 시스템 이미지 설치** (Android Studio)
+   1. Tools > SDK Manager > **SDK Update Sites** 탭 > `+`
+   2. Name `Pleos Connect System Image`, URL은 PC에 맞게 입력합니다.
+      - Mac: `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-arm64-sys-img.xml`
+      - Windows/Linux: `https://nexus-playground.pleos.ai/repository/raw-releases/connect-avd/2.x/crp-sys-img.xml`
+   3. **SDK Platforms** 탭에서 Show Package Details를 켜고 Android API 34의 **Pleos Connect System Image**(v2.1.0)를 설치한 뒤 Android Studio를 재시작합니다.
+   4. Device Manager > Create device > Automotive > **Pleos Connect v2.1.0**으로 AVD를 만듭니다 (Advanced Settings > Default boot는 Cold 권장).
+2. 에뮬레이터를 실행합니다: Device Manager에서 실행하거나 `$ANDROID_HOME/emulator/emulator -avd <AVD 이름>`
+3. 앱을 설치하고 권한을 줍니다.
    ```sh
-   ./gradlew installDebug          # 또는 apk/ 의 릴리스 APK를 adb install
+   adb install "apk/BizDriveLog_비즈드라이브로그_release.apk"   # 저장소의 릴리스 APK
+   # 또는 소스에서 디버그 빌드: ./gradlew installDebug
    adb shell pm grant --user 10 app.bizdrivelog pleos.car.permission.FUSED_LOCATION
    adb shell pm grant --user 10 app.bizdrivelog android.permission.POST_NOTIFICATIONS
    ```
-   Pleos Connect 에뮬레이터의 사용자는 user 10이라 `--user 10`이 필요합니다.
+   - Pleos Connect 에뮬레이터의 사용자는 user 10이라 `--user 10`이 필요합니다.
+   - 릴리스 서명 키는 저장소에 없으므로, 소스에서 `assembleRelease`를 하면 서명 없는 APK가 만들어져 설치되지 않습니다. 릴리스 빌드를 쓰려면 저장소의 `apk/` 파일을 설치하고, 소스에서 빌드할 때는 `installDebug`를 씁니다.
+   - 디버그와 릴리스는 서명이 달라 서로 덮어 설치되지 않습니다. 바꿀 때는 먼저 `adb uninstall app.bizdrivelog`로 삭제합니다(앱 데이터도 지워짐).
 4. **Virtual Console**로 차량 상태를 바꿉니다: `adb forward tcp:8088 tcp:8088` 후 브라우저에서 `http://127.0.0.1:8088/`.
    기어(P/D), 속도, 누적거리(`traveled_distance_km`)를 바꾸면 앱이 운행을 기록합니다. 위치는 `adb emu geo fix <경도> <위도>`.
 5. 앱 설정에서 운행기록부 머리 정보(상호·사업자등록번호·차종·차량번호·부서·성명)와 자택·회사 위치("현재 위치로 등록")를 입력합니다.
@@ -63,8 +82,8 @@
 ## 알려진 제약
 
 - Pleos 개발자 콘솔에서 "Coming Soon"으로 표시된 SDK(차량·위치·음성)는 **Pleos Connect v2.1.0 에뮬레이터에서 검증한 결과 기준**입니다. 실차에서의 권한·동작은 확인하지 못했습니다.
-- Gleo 연동 `schema.json`은 현대자동차그룹의 검토·승인 대상입니다. 에뮬레이터에서는 Gleo의 LLM 서버가 연결되지 않아 실제 음성 호출은 확인하지 못했고, 같은 인텐트를 adb로 보내 응답 흐름만 확인했습니다.
-- 주행 중 화면(`distractionOptimized`)은 에뮬레이터에서 일반 앱 선언만으로 동작했지만, 실차·스토어 설치에서 별도 승인이 필요한지는 확인하지 못했습니다.
+- Gleo 연동: 주최측 안내에 따르면 공모전 단계에서는 `schema.json`에 대한 별도 승인 절차가 없습니다. 에뮬레이터에서는 Gleo의 LLM 서버가 연결되지 않아 실제 음성 호출은 확인하지 못했습니다. 앱 쪽 호출 규격(인텐트 수신, `APP_ACTION_RESPONSE` 응답)은 구현했고, 같은 인텐트를 adb로 보내 응답 흐름을 확인했습니다.
+- 주행 중 화면(`distractionOptimized`): 주최측 안내에 따르면 개발 단계에서는 문제가 없고, 적합성은 실제 배포 시 M마켓 심사에서 확인합니다. 앱은 [주행 규제 개발 가이드](https://document.pleos.ai/docs/pleos-only/vehicle-app-developer-guide/driving-restriction-development-guide)에 따라 수신한 `CarUxRestrictions`를 반영하며, 에뮬레이터에서 동작을 확인했습니다. 실차에서는 확인하지 못했습니다.
 - 에뮬레이터에는 Wi-Fi가 없어 릴리스 빌드에서는 "휴대폰으로 받기"가 핫스팟 연결 안내로 끝납니다. QR 다운로드는 디버그 빌드의 주소 덮어쓰기로 검증했습니다.
 - 기록은 차량 안에만 저장됩니다. 차량 데이터 초기화나 앱 삭제에 대비해 정기적으로 엑셀을 휴대폰으로 받아 두는 것을 권장합니다(백업 기능은 향후 과제).
 - 앱을 설정에서 강제 종료하면 다시 열 때까지 기록이 멈춥니다. 다시 시작되면 저장된 마지막 상태와 비교해 운행을 닫고, 그 사이 늘어난 계기판 구간은 "기록 공백" 운행으로 남깁니다(시각은 정확하지 않고 분류는 사용자가 확인). 꺼진 동안 끝난 운행과 이어진 다음 운행을 주행 중에 복귀하면 한 건으로 합쳐집니다.
