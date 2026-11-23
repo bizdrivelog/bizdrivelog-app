@@ -36,8 +36,9 @@ data class VoiceAnswer(
 
         /** 어디에 들렀다는 뜻만 있는 일반 동사. 출퇴근 도중이면 이것만으로는 업무로 보지 않는다 (마트·약국에 들른 것일 수 있음) */
         private val GENERIC_VISIT = listOf("방문", "들렀", "다녀")
-        /** 출퇴근 도중 업무로 볼 구체적 근거: 일반 동사를 뺀 목적 키워드 + 거래처·고객 */
-        private val SPECIFIC_PURPOSE = listOf("거래처", "고객") + PURPOSES.flatMap { it.first }.filter { it !in GENERIC_VISIT }
+        /** 출퇴근 도중 업무로 볼 구체적 근거: 일반 동사와 관공서·은행(개인 볼일일 수 있음)을 뺀 목적 키워드 + 거래처·고객 */
+        private val SPECIFIC_PURPOSE = listOf("거래처", "고객") +
+            PURPOSES.filter { (_, purpose) -> purpose != "관공서·은행 업무" }.flatMap { it.first }.filter { it !in GENERIC_VISIT }
 
         /** 출퇴근하는 도중 ("출근길에", "퇴근하면서", "퇴근하는 길에"). 구체적 업무 근거가 함께 있으면 업무로 본다 */
         private val COMMUTE_EN_ROUTE = Regex("""(출근|퇴근)(길|\s*하면서|\s*하는\s*길)""")

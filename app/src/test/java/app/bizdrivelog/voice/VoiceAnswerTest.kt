@@ -33,7 +33,10 @@ class VoiceAnswerTest {
     @Test fun commuteAfterMeeting() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("회의 끝나고 퇴근해요"))
     @Test fun deliveryOnTheWayHome() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송", "한빛상사"), parse("퇴근하면서 한빛상사 납품"))
     @Test fun onTheWayWithoutBusinessIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길이에요"))
-    @Test fun bankOnTheWayToWork() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "관공서·은행 업무"), parse("출근하는 길에 은행 들렀어"))
+    // 출퇴근 도중 은행·관공서는 개인 볼일일 수 있어 출퇴근, 도중이 아니면 업무
+    @Test fun bankOnTheWayToWork() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "출근"), parse("출근하는 길에 은행 들렀어"))
+    @Test fun bankStopOnCommuteIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "출근"), parse("출근길에 은행 들렀어"))
+    @Test fun bankVisitIsBusiness() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "관공서·은행 업무"), parse("은행 다녀왔어"))
 
     // 출퇴근 도중 들른 곳만 있으면(일반 동사·장소 이름) 출퇴근
     @Test fun shopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길에 마트 들렀어"))
