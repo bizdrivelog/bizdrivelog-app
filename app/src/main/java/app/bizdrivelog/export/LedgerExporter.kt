@@ -128,7 +128,10 @@ object LedgerExporter {
     private enum class Style { TITLE, SECTION, HEAD, BLANK, VALUE, NOTE }
     private enum class Fmt { KM, PCT }
 
-    fun fileName(ledger: Ledger) = "운행기록부_${ledger.profile.plate.replace(Regex("\\s"), "")}_${ledger.period.fileSuffix}.xlsx"
+    /** 번호판이 비어 있으면 그 부분을 빼서 운행기록부_<기간>.xlsx */
+    fun fileName(ledger: Ledger) =
+        listOf("운행기록부", ledger.profile.plate.replace(Regex("\\s"), ""), ledger.period.fileSuffix)
+            .filter { it.isNotEmpty() }.joinToString("_") + ".xlsx"
 
     fun write(ledger: Ledger, dir: File, zone: ZoneId = ZoneId.systemDefault()): File {
         dir.mkdirs()

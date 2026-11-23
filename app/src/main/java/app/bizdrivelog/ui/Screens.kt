@@ -309,8 +309,11 @@ private fun CorrectedMark() {
     Text("정정됨", Modifier.padding(start = 12.dp), style = Type.Label, color = Palette.TextSub, maxLines = 1)
 }
 
-private fun subLine(record: TripRecord): String? = when {
+/** 목록 둘째 줄. 확정 원본은 잠겨 있어 개인으로 정정해도 원래 위치는 남으므로, 실제로 저장된 위치가 없을 때만 "위치 미저장" */
+internal fun subLine(record: TripRecord): String? = when {
     record.trip.recordGap -> listOf(RECORD_GAP_LABEL, record.effectivePurpose).filter { it.isNotBlank() }.joinToString(" · ")
+    record.effectiveMode == TripMode.PERSONAL && hasStoredLocation(record.trip) ->
+        if (record.isCorrected(CorrectionField.MODE)) "개인 운행(정정) · 원본 구간 보존" else "개인 운행"
     record.effectiveMode == TripMode.PERSONAL -> "개인 운행 · 위치 미저장"
     hasNoLocation(record.trip) -> "위치 미저장 (원본 개인 운행)"
     else -> record.effectivePurpose.takeIf { it.isNotBlank() }
@@ -450,6 +453,10 @@ fun routeText(trip: Trip, record: TripRecord? = null): String {
 }
 
 private const val OTHER_PLACE = "기타 장소"
+
+/** 좌표나 자택·회사 영역 중 하나라도 저장돼 있는지 */
+internal fun hasStoredLocation(trip: Trip) =
+    trip.startLat != null || trip.endLat != null || trip.fromPlace != null || trip.toPlace != null
 
 /** 개인 운행으로 끝나 위치가 없는 운행 (나중에 정정으로 분류가 바뀌어도) */
 internal fun hasNoLocation(trip: Trip) =

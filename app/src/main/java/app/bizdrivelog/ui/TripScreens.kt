@@ -158,7 +158,7 @@ fun DetailScreen(record: TripRecord, onBack: () -> Unit, onCorrect: (TripRecord,
         Panel {
             if (trip.recordGap) Text("$RECORD_GAP_LABEL (서비스 중단): 시각은 정확하지 않고 계기판 값은 원본입니다", style = Type.BodyM, color = Palette.Pending)
             InfoRow("날짜" to DATE.format(Date(trip.startedAt)), "시각" to timeRange(trip))
-            InfoRow("구간" to routeText(trip), "주행거리" to (distanceText(trip) ?: "-"))
+            InfoRow("구간" to routeText(trip, record), "주행거리" to (distanceText(trip) ?: "-"))
             InfoRow(
                 "주행 전 계기판" to formatKm(trip.startOdometerKm),
                 "주행 후 계기판" to (trip.endOdometerKm?.let { formatKm(it) } ?: "-"),
