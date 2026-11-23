@@ -15,7 +15,10 @@ data class VoiceAnswer(
         private val PERSONAL = listOf("개인", "사적", "사사로", "업무 아니", "업무가 아니", "업무는 아니")
         private val COMMUTE_OUT = listOf("퇴근")
         private val COMMUTE_IN = listOf("출근")
-        private val YES = listOf("네", "예", "응", "어", "맞아", "맞습니다", "맞아요", "그래", "좋아", "기록해")
+        /** 짧은 대답은 단어 전체가 같을 때만 ("어디", "예약"처럼 이 글자로 시작하는 말이 많아서) */
+        private val YES_EXACT = listOf("네", "예", "응", "어")
+        /** 활용형이 붙는 대답은 앞부분 일치 ("맞아요", "그래요", "기록해 줘") */
+        private val YES_PREFIX = listOf("맞아", "맞습니다", "그래", "좋아", "기록해")
         private val NO = listOf("아니", "아뇨", "아니요")
 
         /** 목적 키워드 → 운행기록부에 남길 목적 (앞에 있는 것이 우선) */
@@ -30,6 +33,9 @@ data class VoiceAnswer(
             listOf("방문", "들렀", "다녀") to "거래처 방문",
         )
         private val BUSINESS = listOf("업무", "거래처", "고객", "회사 일", "외근") + PURPOSES.flatMap { it.first }
+
+        /** 출퇴근하는 도중 ("출근길에", "퇴근하면서", "퇴근하는 길에"). 업무 근거가 함께 있으면 업무로 본다 */
+        private val COMMUTE_EN_ROUTE = Regex("""(출근|퇴근)(길|\s*하면서|\s*하는\s*길)""")
 
         /** 회사·기관 이름 끝말 (○○상사, △△전자 …) */
         private val ORG_SUFFIX =
@@ -51,11 +57,16 @@ data class VoiceAnswer(
             if (text.isEmpty()) return null
 
             if (PERSONAL.any { it in text }) return VoiceAnswer(TripMode.PERSONAL)
-            COMMUTE_OUT.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "퇴근") }
-            COMMUTE_IN.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "출근") }
 
             val visit = visitPlace(text)
             val purpose = PURPOSES.firstOrNull { (keys, _) -> keys.any { it in text } }?.second
+            // "출근길에 거래처 들렀어"처럼 가는 도중 업무를 봤으면 업무, 그 밖의 출근·퇴근은 출퇴근
+            val businessOnTheWay = COMMUTE_EN_ROUTE.containsMatchIn(text) && (purpose != null || visit.isNotEmpty())
+            if (!businessOnTheWay) {
+                COMMUTE_OUT.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "퇴근") }
+                COMMUTE_IN.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "출근") }
+            }
+
             if (purpose != null || visit.isNotEmpty() || BUSINESS.any { it in text }) {
                 val resolved = when {
                     purpose == "미팅" -> if (visit.isNotEmpty() || "거래처" in text || "고객" in text) "거래처 미팅" else "회의"
@@ -68,7 +79,8 @@ data class VoiceAnswer(
 
             val words = text.split(' ')
             if (NO.any { no -> words.any { it.startsWith(no) } }) return null
-            if (YES.any { yes -> words.any { it == yes || it.startsWith(yes) } }) return suggested?.let { VoiceAnswer(it) }
+            val yes = words.any { w -> w in YES_EXACT || YES_PREFIX.any { w.startsWith(it) } }
+            if (yes) return suggested?.let { VoiceAnswer(it) }
             return null
         }
 
@@ -76,7 +88,7 @@ data class VoiceAnswer(
             ORG.find(text)?.let { return it.groupValues[1] }
             return PLACE_BEFORE_VERB.findAll(text)
                 .map { it.groupValues[1] }
-                .firstOrNull { it !in NOT_A_PLACE && PURPOSES.none { (keys, _) -> keys.any { k -> k in it } } }
+                .firstOrNull { it !in NOT_A_PLACE && "출근" !in it && "퇴근" !in it && PURPOSES.none { (keys, _) -> keys.any { k -> k in it } } }
                 .orEmpty()
         }
 

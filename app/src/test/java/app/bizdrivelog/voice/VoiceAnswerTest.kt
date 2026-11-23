@@ -22,4 +22,16 @@ class VoiceAnswerTest {
     @Test fun noOnly() = assertNull(parse("아니요"))
     @Test fun noise() = assertNull(parse("음"))
     @Test fun empty() = assertNull(parse(" "))
+
+    // 짧은 긍정은 단어 전체가 같을 때만
+    @Test fun wordStartingWithEoIsNotYes() = assertNull(parse("어디였더라"))
+    @Test fun eoAloneKeepsSuggestion() = assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("어", TripMode.COMMUTE))
+    @Test fun conjugatedYesKeepsSuggestion() = assertEquals(VoiceAnswer(TripMode.PERSONAL), parse("그래요", TripMode.PERSONAL))
+
+    // 출퇴근 도중 업무 근거가 있으면 업무, 없으면 출퇴근
+    @Test fun clientOnTheWayToWork() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문"), parse("출근길에 거래처 들렀어"))
+    @Test fun commuteAfterMeeting() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("회의 끝나고 퇴근해요"))
+    @Test fun deliveryOnTheWayHome() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송", "한빛상사"), parse("퇴근하면서 한빛상사 납품"))
+    @Test fun onTheWayWithoutBusinessIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길이에요"))
+    @Test fun bankOnTheWayToWork() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "관공서·은행 업무"), parse("출근하는 길에 은행 들렀어"))
 }
