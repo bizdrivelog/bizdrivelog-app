@@ -10,7 +10,7 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** 엑셀 아래 안내 줄: 계기판 값 이상은 확정된 것만 세고, 미확정 이상 운행은 미확정 줄에서만 센다 */
+/** 엑셀 아래 안내 줄: 한 운행은 한 줄에만. 계기판 값 이상은 확정 여부와 관계없이 이상 줄에서만 센다 */
 class FootNotesTest {
 
     private val zone = ZoneId.of("Asia/Seoul")
@@ -44,8 +44,9 @@ class FootNotesTest {
         notes(normal, trip(2, 12012.3, 12020.0, confirmed = false)),
     )
 
-    @Test fun `미확정이면서 이상이면 미확정 줄에서만 센다`() = assertEquals(
-        listOf("※ 미확정 운행 1건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다."),
+    // 확정해도 거리를 알 수 없어 포함되지 않으므로 "확정하면 포함" 줄에 넣지 않는다
+    @Test fun `미확정이면서 이상이면 이상 줄에서만 센다`() = assertEquals(
+        listOf("※ 계기판 값 이상 1건은 거리를 알 수 없어 제외했습니다."),
         notes(normal, trip(2, 12050.0, 0.0, confirmed = false)),
     )
 }

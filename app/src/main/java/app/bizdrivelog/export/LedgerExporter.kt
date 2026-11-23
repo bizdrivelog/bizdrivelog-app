@@ -63,8 +63,9 @@ data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
 
 /**
  * rows·합계는 확정 운행만 (확정 기록만 제출한다). 정정이 있으면 정정 반영값.
- * pending: 기간 안의 미확정 운행 (rows·합계에서 제외, 화면에 따로 표시)
- * anomalies: 기간 안의 확정된 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외). 미확정 이상 운행은 pending에서 센다
+ * 제외한 운행은 한 묶음에만 센다.
+ * pending: 기간 안의 미확정 운행 중 계기판 값 이상이 아닌 것 (확정하면 rows·합계에 들어감)
+ * anomalies: 기간 안의 계기판 값 이상 운행, 확정 여부와 관계없이 (거리를 알 수 없어 확정해도 rows·합계에 안 들어감)
  */
 class Ledger(
     val profile: LedgerProfile,
@@ -98,8 +99,8 @@ class Ledger(
                         remark = remarkOf(record),
                     )
                 }
-            val anomalies = records.filter { it.trip.odometerAnomaly && it.trip.isConfirmed && inPeriod(it) }
-            val pending = records.filter { it.trip.endedAt != null && !it.trip.isConfirmed && inPeriod(it) }
+            val anomalies = records.filter { it.trip.odometerAnomaly && inPeriod(it) }
+            val pending = records.filter { it.trip.endedAt != null && !it.trip.isConfirmed && !it.trip.odometerAnomaly && inPeriod(it) }
             return Ledger(profile, period, rows, anomalies, pending)
         }
 
