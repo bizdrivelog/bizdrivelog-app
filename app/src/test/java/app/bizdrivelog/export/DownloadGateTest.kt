@@ -9,8 +9,8 @@ import org.junit.Test
 /** 일회용 링크: 전송 중 같은 IP는 허용, 다른 IP는 409, 끊기면 다시 받을 수 있고, 다 받으면 410 */
 class DownloadGateTest {
 
-    private val phone = "192.168.43.20"
-    private val other = "192.168.43.30"
+    private val phone = "192.0.2.20"
+    private val other = "192.0.2.30"
 
     @Test fun `전송 중 같은 IP의 두 번째 요청은 허용`() {
         val gate = DownloadGate()
