@@ -34,7 +34,12 @@ data class VoiceAnswer(
         )
         private val BUSINESS = listOf("업무", "거래처", "고객", "회사 일", "외근") + PURPOSES.flatMap { it.first }
 
-        /** 출퇴근하는 도중 ("출근길에", "퇴근하면서", "퇴근하는 길에"). 업무 근거가 함께 있으면 업무로 본다 */
+        /** 어디에 들렀다는 뜻만 있는 일반 동사. 출퇴근 도중이면 이것만으로는 업무로 보지 않는다 (마트·약국에 들른 것일 수 있음) */
+        private val GENERIC_VISIT = listOf("방문", "들렀", "다녀")
+        /** 출퇴근 도중 업무로 볼 구체적 근거: 일반 동사를 뺀 목적 키워드 + 거래처·고객 */
+        private val SPECIFIC_PURPOSE = listOf("거래처", "고객") + PURPOSES.flatMap { it.first }.filter { it !in GENERIC_VISIT }
+
+        /** 출퇴근하는 도중 ("출근길에", "퇴근하면서", "퇴근하는 길에"). 구체적 업무 근거가 함께 있으면 업무로 본다 */
         private val COMMUTE_EN_ROUTE = Regex("""(출근|퇴근)(길|\s*하면서|\s*하는\s*길)""")
 
         /** 회사·기관 이름 끝말 (○○상사, △△전자 …) */
@@ -60,8 +65,9 @@ data class VoiceAnswer(
 
             val visit = visitPlace(text)
             val purpose = PURPOSES.firstOrNull { (keys, _) -> keys.any { it in text } }?.second
-            // "출근길에 거래처 들렀어"처럼 가는 도중 업무를 봤으면 업무, 그 밖의 출근·퇴근은 출퇴근
-            val businessOnTheWay = COMMUTE_EN_ROUTE.containsMatchIn(text) && (purpose != null || visit.isNotEmpty())
+            // "출근길에 거래처 들렀어"처럼 가는 도중 구체적인 업무를 봤으면 업무, 그 밖의 출근·퇴근은 출퇴근
+            // ("퇴근길에 마트 들렀어", "퇴근길에 한빛상사 들렀어"처럼 들른 곳만 있으면 출퇴근)
+            val businessOnTheWay = COMMUTE_EN_ROUTE.containsMatchIn(text) && SPECIFIC_PURPOSE.any { it in text }
             if (!businessOnTheWay) {
                 COMMUTE_OUT.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "퇴근") }
                 COMMUTE_IN.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "출근") }
@@ -79,10 +85,14 @@ data class VoiceAnswer(
 
             val words = text.split(' ')
             if (NO.any { no -> words.any { it.startsWith(no) } }) return null
-            val yes = words.any { w -> w in YES_EXACT || YES_PREFIX.any { w.startsWith(it) } }
+            val yes = words.any { w -> isShortYes(w) || YES_PREFIX.any { w.startsWith(it) } }
             if (yes) return suggested?.let { VoiceAnswer(it) }
             return null
         }
+
+        /** "네", "응" 또는 같은 말을 반복한 "네네", "응응", "예예" */
+        private fun isShortYes(word: String): Boolean =
+            YES_EXACT.any { yes -> word.isNotEmpty() && word.length % yes.length == 0 && word == yes.repeat(word.length / yes.length) }
 
         private fun visitPlace(text: String): String {
             ORG.find(text)?.let { return it.groupValues[1] }

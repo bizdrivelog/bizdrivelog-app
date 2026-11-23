@@ -34,4 +34,16 @@ class VoiceAnswerTest {
     @Test fun deliveryOnTheWayHome() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송", "한빛상사"), parse("퇴근하면서 한빛상사 납품"))
     @Test fun onTheWayWithoutBusinessIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길이에요"))
     @Test fun bankOnTheWayToWork() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "관공서·은행 업무"), parse("출근하는 길에 은행 들렀어"))
+
+    // 출퇴근 도중 들른 곳만 있으면(일반 동사·장소 이름) 출퇴근
+    @Test fun shopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길에 마트 들렀어"))
+    @Test fun stopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근하면서 들렀어"))
+    @Test fun companyStopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길에 한빛상사 들렀어"))
+
+    // 같은 짧은 긍정어를 반복해도 긍정
+    @Test fun repeatedYesKeepsSuggestion() {
+        assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("네네", TripMode.COMMUTE))
+        assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("응응", TripMode.COMMUTE))
+        assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("예예", TripMode.COMMUTE))
+    }
 }
