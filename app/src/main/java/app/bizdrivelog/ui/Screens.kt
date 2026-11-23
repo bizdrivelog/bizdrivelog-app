@@ -325,6 +325,7 @@ internal fun subLine(record: TripRecord): String? = when {
 fun SettingsScreen(
     places: List<Place>,
     message: String?,
+    notificationsOff: Boolean,
     profile: LedgerProfile,
     voiceEnabled: Boolean,
     onVoiceEnabled: (Boolean) -> Unit,
@@ -339,6 +340,7 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         ScreenHeader("설정", onBack)
+        if (notificationsOff) Text("알림 꺼짐: 기록이 멈출 위험을 알려 드릴 수 없습니다", style = Type.BodyM, color = Palette.Pending)
         message?.let { Text(it, style = Type.BodyM, color = Palette.Text) }
         ProfileForm(profile, onSaveProfile)
         ToggleRow(

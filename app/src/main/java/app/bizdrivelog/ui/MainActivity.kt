@@ -6,8 +6,11 @@ import ai.pleos.playground.location.fused.model.LocationData
 import android.car.Car
 import android.car.drivingstate.CarUxRestrictions
 import android.car.drivingstate.CarUxRestrictionsManager
+import android.Manifest
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -75,11 +78,13 @@ class MainActivity : ComponentActivity() {
     private val debugPrefs by lazy { getSharedPreferences("debug", MODE_PRIVATE) }
     /** QR 화면 연결 주소 표시 (디버그 빌드 설정에서만 켤 수 있음) */
     private var showQrAddress by mutableStateOf(false)
+    /** 앱 알림이 꺼져 있음 (권한 거부 또는 시스템 설정에서 끔) */
+    private var notificationsOff by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         connectUxRestrictions()
-        requestLocationPermission()
+        requestRuntimePermissions()
         profile = profileStore.load()
         voiceEnabled = voiceSettings.enabled
         showQrAddress = BuildConfig.DEBUG && debugPrefs.getBoolean("showQrAddress", false)
@@ -133,6 +138,7 @@ class MainActivity : ComponentActivity() {
                     screen == Screen.SETTINGS -> SettingsScreen(
                         places = placeList,
                         message = settingsMessage,
+                        notificationsOff = notificationsOff,
                         profile = profile,
                         voiceEnabled = voiceEnabled,
                         onVoiceEnabled = ::toggleVoice,
@@ -180,6 +186,8 @@ class MainActivity : ComponentActivity() {
         // 화면이 보이는 동안은 포그라운드 서비스 시작이 허용된다. 서비스가 멈췄거나 일반 서비스로 떨어졌으면 여기서 되살린다
         DriveRecorderService.start(this)
         profile = profileStore.load()
+        // 시스템 설정에서 알림을 바꾸고 돌아온 경우도 반영
+        refreshNotificationState()
     }
 
     /** 화면이 가려지거나 꺼지면 QR 서버도 닫는다 */
@@ -331,10 +339,18 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { runCatching { block() }.onFailure { Log.e(TAG, "db action failed", it) } }
     }
 
-    private fun requestLocationPermission() {
-        if (checkSelfPermission(FUSED_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(FUSED_LOCATION), 1)
-        }
+    /** 위치(자택·회사 판단)와 알림(기록 중 표시, 기록이 멈출 위험 안내)을 한 번에 요청한다. 알림 권한은 API 33부터 런타임 권한 */
+    private fun requestRuntimePermissions() {
+        val missing = buildList {
+            add(FUSED_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+        }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
+    }
+
+    /** 권한 창은 별도 화면이라 닫히면 onResume이 다시 불리고, 거기서 이 값을 갱신한다 */
+    private fun refreshNotificationState() {
+        notificationsOff = !getSystemService(NotificationManager::class.java).areNotificationsEnabled()
     }
 
     private fun connectUxRestrictions() {
