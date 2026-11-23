@@ -48,7 +48,7 @@ private val REASON_PRESETS = listOf("비고 누락 보완", "운행 모드 오�
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ReviewScreen(record: TripRecord, position: Int, count: Int, voice: VoicePhase?, actions: HomeActions, onBack: () -> Unit) {
+fun ReviewScreen(record: TripRecord, position: Int, count: Int, voice: VoicePhase?, driving: Boolean, actions: HomeActions, onBack: () -> Unit) {
     val trip = record.trip
     var mode by remember(trip.id, trip.modeBy) { mutableStateOf(trip.mode) }
     var modeBy by remember(trip.id, trip.modeBy) { mutableStateOf(trip.modeBy) }
@@ -78,7 +78,8 @@ fun ReviewScreen(record: TripRecord, position: Int, count: Int, voice: VoicePhas
                     color = if (voice == VoicePhase.Idle) Palette.TextSub else Palette.Text,
                     modifier = Modifier.weight(1f),
                 )
-                if (voice == VoicePhase.Idle || voice is VoicePhase.Heard) BigButton("음성으로 답하기", { actions.askVoice(trip) })
+                // 운행 중(기어 P가 아님)에는 앱이 먼저 묻지 않는다. 서비스도 P가 아니면 거부한다 (VoiceGate)
+                if (!driving && (voice == VoicePhase.Idle || voice is VoicePhase.Heard)) BigButton("음성으로 답하기", { actions.askVoice(trip) })
             }
         }
 

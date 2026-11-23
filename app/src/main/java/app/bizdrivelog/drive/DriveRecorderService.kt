@@ -390,6 +390,10 @@ class DriveRecorderService : LifecycleService() {
 
     /** 정차 후 음성 질문. 인식 실패·무응답이면 아무것도 하지 않고 화면 카드 입력으로 넘어간다. */
     private fun askAbout(tripId: Long, suggested: TripMode?) {
+        if (!VoiceGate.canAsk(lastGear)) {
+            Log.i(TAG, "voice ask refused: gear=$lastGear (not P) trip=$tripId")
+            return
+        }
         if (!voiceSettings.enabled) return
         stopVoice()
         voiceJob = lifecycleScope.launch {

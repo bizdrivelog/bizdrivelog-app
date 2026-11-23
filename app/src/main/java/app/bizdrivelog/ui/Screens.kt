@@ -110,7 +110,9 @@ fun HomeScreen(status: DriveStatus, records: List<TripRecord>, voice: VoicePhase
             item { Text("운행 기록이 없습니다. 시동을 걸면(기어 D) 자동으로 기록이 시작됩니다.", style = Type.BodyM, color = Palette.TextSub) }
         }
         items(records, key = { it.trip.id }) { record ->
-            TripRowCard(record) {
+            // 미확인 운행의 확인 카드는 정차 중에만 연다 (배너와 같은 규칙)
+            val opensReview = !record.trip.isConfirmed
+            TripRowCard(record, enabled = !(opensReview && status.isDriving)) {
                 when {
                     record.trip.endedAt == null -> Unit
                     record.trip.isConfirmed -> actions.openDetail(record.trip.id)
@@ -255,7 +257,7 @@ private fun Legend(mode: TripMode, km: Double) {
 
 /** 운행 한 줄 (큰 행). 계기판 전·후 값과 정정 이력은 상세 화면에서 */
 @Composable
-private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
+private fun TripRowCard(record: TripRecord, enabled: Boolean = true, onClick: () -> Unit) {
     val trip = record.trip
     val mode = record.effectiveMode
     val shape = RoundedCornerShape(Dim.RadiusM)
@@ -266,7 +268,7 @@ private fun TripRowCard(record: TripRecord, onClick: () -> Unit) {
             .clip(shape)
             .background(Palette.Surface)
             .then(if (!trip.isConfirmed && trip.endedAt != null) Modifier.border(2.dp, Palette.Pending, shape) else Modifier)
-            .clickable(enabled = trip.endedAt != null, onClick = onClick)
+            .clickable(enabled = enabled && trip.endedAt != null, onClick = onClick)
             .padding(horizontal = 32.dp, vertical = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

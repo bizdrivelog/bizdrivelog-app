@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
                         position = pending.indexOf(selected) + 1,
                         count = pending.size,
                         voice = if (voiceEnabled) voicePhase else null,
+                        driving = status.isDriving,
                         actions = actions,
                         onBack = { screen = Screen.HOME },
                     )
