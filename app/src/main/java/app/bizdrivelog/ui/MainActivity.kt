@@ -80,6 +80,8 @@ class MainActivity : ComponentActivity() {
     private var showQrAddress by mutableStateOf(false)
     /** 앱 알림이 꺼져 있음 (권한 거부 또는 시스템 설정에서 끔) */
     private var notificationsOff by mutableStateOf(false)
+    /** 위치 권한 없음 (자택·회사 영역과 출퇴근 제안을 쓸 수 없음) */
+    private var locationOff by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -139,6 +141,7 @@ class MainActivity : ComponentActivity() {
                         places = placeList,
                         message = settingsMessage,
                         notificationsOff = notificationsOff,
+                        locationOff = locationOff,
                         profile = profile,
                         voiceEnabled = voiceEnabled,
                         onVoiceEnabled = ::toggleVoice,
@@ -186,8 +189,8 @@ class MainActivity : ComponentActivity() {
         // 화면이 보이는 동안은 포그라운드 서비스 시작이 허용된다. 서비스가 멈췄거나 일반 서비스로 떨어졌으면 여기서 되살린다
         DriveRecorderService.start(this)
         profile = profileStore.load()
-        // 시스템 설정에서 알림을 바꾸고 돌아온 경우도 반영
-        refreshNotificationState()
+        // 시스템 설정에서 알림·위치 권한을 바꾸고 돌아온 경우도 반영
+        refreshPermissionState()
     }
 
     /** 화면이 가려지거나 꺼지면 QR 서버도 닫는다 */
@@ -348,9 +351,10 @@ class MainActivity : ComponentActivity() {
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
     }
 
-    /** 권한 창은 별도 화면이라 닫히면 onResume이 다시 불리고, 거기서 이 값을 갱신한다 */
-    private fun refreshNotificationState() {
+    /** 권한 창은 별도 화면이라 닫히면 onResume이 다시 불리고, 거기서 이 값들을 갱신한다 */
+    private fun refreshPermissionState() {
         notificationsOff = !getSystemService(NotificationManager::class.java).areNotificationsEnabled()
+        locationOff = checkSelfPermission(FUSED_LOCATION) != PackageManager.PERMISSION_GRANTED
     }
 
     private fun connectUxRestrictions() {

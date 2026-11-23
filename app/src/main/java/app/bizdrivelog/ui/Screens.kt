@@ -326,6 +326,7 @@ fun SettingsScreen(
     places: List<Place>,
     message: String?,
     notificationsOff: Boolean,
+    locationOff: Boolean,
     profile: LedgerProfile,
     voiceEnabled: Boolean,
     onVoiceEnabled: (Boolean) -> Unit,
@@ -341,6 +342,7 @@ fun SettingsScreen(
     ) {
         ScreenHeader("설정", onBack)
         if (notificationsOff) Text("알림 꺼짐: 기록이 멈출 위험을 알려 드릴 수 없습니다", style = Type.BodyM, color = Palette.Pending)
+        if (locationOff) Text("위치 꺼짐: 자택·회사 영역과 출퇴근 제안을 쓸 수 없습니다", style = Type.BodyM, color = Palette.Pending)
         message?.let { Text(it, style = Type.BodyM, color = Palette.Text) }
         ProfileForm(profile, onSaveProfile)
         ToggleRow(
