@@ -64,7 +64,7 @@ data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
 /**
  * rows·합계는 확정 운행만 (확정 기록만 제출한다). 정정이 있으면 정정 반영값.
  * pending: 기간 안의 미확정 운행 (rows·합계에서 제외, 화면에 따로 표시)
- * anomalies: 기간 안의 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외)
+ * anomalies: 기간 안의 확정된 계기판 값 이상 운행 (거리를 알 수 없어 rows·합계에서 제외). 미확정 이상 운행은 pending에서 센다
  */
 class Ledger(
     val profile: LedgerProfile,
@@ -98,7 +98,7 @@ class Ledger(
                         remark = remarkOf(record),
                     )
                 }
-            val anomalies = records.filter { it.trip.odometerAnomaly && inPeriod(it) }
+            val anomalies = records.filter { it.trip.odometerAnomaly && it.trip.isConfirmed && inPeriod(it) }
             val pending = records.filter { it.trip.endedAt != null && !it.trip.isConfirmed && inPeriod(it) }
             return Ledger(profile, period, rows, anomalies, pending)
         }
@@ -209,19 +209,18 @@ object LedgerExporter {
         add("G$tv:H$tv", ledger.totals.businessUseKm, Style.VALUE, Fmt.KM, bold = true)
         add("I$tv", ledger.totals.ratioPercent / 100, Style.VALUE, Fmt.PCT, bold = true)
 
-        var foot = tv + 2
-        if (ledger.corrections.isNotEmpty()) {
-            add("A$foot", "※ 정정 ${ledger.corrections.size}건 반영값입니다. 원본 값과 정정 내역은 '정정 이력' 시트를 참조하세요.", Style.NOTE)
-            foot++
-        }
-        if (ledger.pending.isNotEmpty()) {
-            add("A$foot", "※ 미확정 운행 ${ledger.pending.size}건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다.", Style.NOTE)
-            foot++
-        }
-        add("A$foot", "파일 식별값: ${fileId(ledger)}  (이 파일에 담긴 운행·정정 이력으로 계산한 값 · 같은 기록에서 내보낸 파일인지 구분하는 용도이며 위변조를 증명하지는 않습니다)", Style.NOTE)
+        footNotes(ledger).forEachIndexed { i, note -> add("A${tv + 2 + i}", note, Style.NOTE) }
 
         listOf(1, 2).forEach { ws.rowHeight(it - 1, 22.0) }
         listOf(9, 10, 11, tl).forEach { ws.rowHeight(it - 1, 24.0) }
+    }
+
+    /** 운행기록부 시트 아래 안내 줄 (위에서부터 순서대로). 마지막 줄은 파일 식별값 */
+    fun footNotes(ledger: Ledger): List<String> = buildList {
+        if (ledger.corrections.isNotEmpty()) add("※ 정정 ${ledger.corrections.size}건 반영값입니다. 원본 값과 정정 내역은 '정정 이력' 시트를 참조하세요.")
+        if (ledger.pending.isNotEmpty()) add("※ 미확정 운행 ${ledger.pending.size}건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다.")
+        if (ledger.anomalies.isNotEmpty()) add("※ 계기판 값 이상 ${ledger.anomalies.size}건은 거리를 알 수 없어 제외했습니다.")
+        add("파일 식별값: ${fileId(ledger)}  (이 파일에 담긴 운행·정정 이력으로 계산한 값 · 같은 기록에서 내보낸 파일인지 구분하는 용도이며 위변조를 증명하지는 않습니다)")
     }
 
     private fun writeCorrectionSheet(ws: Worksheet, ledger: Ledger, zone: ZoneId) {

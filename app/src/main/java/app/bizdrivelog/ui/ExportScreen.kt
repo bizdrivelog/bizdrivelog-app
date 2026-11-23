@@ -13,10 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +33,8 @@ data class ExportState(val file: File? = null, val message: String? = null)
 fun ExportScreen(
     records: List<TripRecord>,
     profile: LedgerProfile,
+    kind: LedgerPeriodKind,
+    onKind: (LedgerPeriodKind) -> Unit,
     state: ExportState,
     qrState: QrState,
     canShare: Boolean,
@@ -49,7 +47,7 @@ fun ExportScreen(
 ) {
     // 서버는 이 화면이 떠 있는 동안만 (화면을 벗어나거나 주행 화면으로 바뀌면 종료)
     DisposableEffect(Unit) { onDispose(onCloseQr) }
-    var kind by remember { mutableStateOf(LedgerPeriodKind.THIS_MONTH) }
+    // 기간은 MainActivity가 갖는다 (바꾸면 이전 파일·QR을 비움, Gleo가 정한 기간과 칩을 맞춤)
     val ledger = Ledger.build(records, profile, LedgerPeriod.of(kind))
 
     if (qrState != QrState.Idle) {
@@ -65,7 +63,7 @@ fun ExportScreen(
 
         Text("기간", style = Type.Label, color = Palette.TextSub)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LedgerPeriodKind.entries.forEach { k -> BigChip(LedgerPeriod.of(k).label, k == kind, Palette.Text, { kind = k }) }
+            LedgerPeriodKind.entries.forEach { k -> BigChip(LedgerPeriod.of(k).label, k == kind, Palette.Text, { onKind(k) }) }
         }
 
         Column(

@@ -36,6 +36,7 @@ import app.bizdrivelog.export.LedgerExporter
 import app.bizdrivelog.export.QrDownloadController
 import app.bizdrivelog.export.QrState
 import app.bizdrivelog.export.LedgerPeriod
+import app.bizdrivelog.export.LedgerPeriodKind
 import app.bizdrivelog.voice.Gleo
 import app.bizdrivelog.voice.VoiceSettings
 import app.bizdrivelog.voice.VoiceState
@@ -64,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private val profileStore by lazy { ProfileStore(this) }
     private var profile by mutableStateOf(LedgerProfile())
     private var exportState by mutableStateOf(ExportState())
+    /** 내보내기 기간. 화면 칩과 Gleo SHOW_DOWNLOAD_QR이 같은 값을 쓴다 */
+    private var exportKind by mutableStateOf(LedgerPeriodKind.THIS_MONTH)
     private var qrState by mutableStateOf<QrState>(QrState.Idle)
     private var canShare by mutableStateOf(false)
     private val qrController by lazy { QrDownloadController(applicationContext) { qrState = it } }
@@ -107,6 +110,7 @@ class MainActivity : ComponentActivity() {
                     // 설정은 다른 경로(설정 화면 외)로도 바뀔 수 있으니 열 때마다 다시 읽는다 (머리 정보 경고가 옛 값으로 뜨지 않게)
                     profile = profileStore.load()
                     exportState = ExportState()
+                    exportKind = LedgerPeriodKind.THIS_MONTH
                     canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
                     screen = Screen.EXPORT
                 },
@@ -140,6 +144,8 @@ class MainActivity : ComponentActivity() {
                     screen == Screen.EXPORT -> ExportScreen(
                         records = recordList,
                         profile = profile,
+                        kind = exportKind,
+                        onKind = ::selectExportKind,
                         state = exportState,
                         qrState = qrState,
                         canShare = canShare,
@@ -237,6 +243,15 @@ class MainActivity : ComponentActivity() {
     private fun shareHandlers(intent: Intent): Int =
         packageManager.queryIntentActivities(intent, 0).size.also { Log.i(TAG, "share handlers=$it") }
 
+    /** 기간이 바뀌면 이전 기간의 파일·QR은 버린다 (받기·보내기 버튼이 다른 기간 파일을 가리키지 않게) */
+    private fun selectExportKind(kind: LedgerPeriodKind) {
+        if (kind == exportKind) return
+        exportKind = kind
+        exportState = ExportState()
+        qrController.stop(QrState.Idle)
+        qrState = QrState.Idle
+    }
+
     /** 휴대폰으로 받기: 주행 중에는 비활성 */
     private fun startQr(file: File) {
         if (restricted) return
@@ -255,10 +270,6 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(this, MainActivity::class.java))
         val params = Gleo.params(intent)
         Log.i(TAG, "gleo action ${Gleo.SHOW_DOWNLOAD_QR} params=$params")
-        if (restricted) {
-            Gleo.respond(this, Gleo.SHOW_DOWNLOAD_QR, Gleo.Result(Gleo.Status.FAIL, "The QR code cannot be shown while driving. Please try again after parking."))
-            return
-        }
         lifecycleScope.launch {
             val result = runCatching {
                 withTimeoutOrNull(Gleo.DEADLINE_MS) {
@@ -266,14 +277,18 @@ class MainActivity : ComponentActivity() {
                     val corrections = dao.getCorrections().groupBy { it.tripId }
                     val records = dao.getAll().map { TripRecord(it, corrections[it.id].orEmpty()) }
                     profile = profileStore.load()
-                    val ledger = Ledger.build(records, profile, LedgerPeriod.of(Gleo.periodKind(params)))
+                    val kind = Gleo.periodKind(params)
+                    val ledger = Ledger.build(records, profile, LedgerPeriod.of(kind))
+                    // 주행 중이거나 확정 운행이 없으면 파일을 만들지 않는다
+                    Gleo.qrPrecheck(ledger, restricted)?.let { return@withTimeoutOrNull it }
                     val file = withContext(Dispatchers.IO) { LedgerExporter.write(ledger, File(filesDir, "exports")) }
+                    selectExportKind(kind)
                     exportState = ExportState(file = file)
                     canShare = shareHandlers(Intent(Intent.ACTION_SEND).setType(XLSX_MIME)) > 0
                     screen = Screen.EXPORT
                     qrController.start(file, file.name)
                     when (qrState) {
-                        is QrState.Waiting -> Gleo.Result(Gleo.Status.SUCCESS, "The QR code is on the screen. Scan it with your phone camera within five minutes.")
+                        is QrState.Waiting -> Gleo.Result(Gleo.Status.SUCCESS, Gleo.qrShownMessage(profile.missing.isNotEmpty()))
                         QrState.NoWifi -> Gleo.Result(Gleo.Status.FAIL, "The vehicle is not connected to Wi-Fi. Connect it to your phone's hotspot and try again.")
                         else -> Gleo.Result(Gleo.Status.FAIL, "The download server could not be started.")
                     }

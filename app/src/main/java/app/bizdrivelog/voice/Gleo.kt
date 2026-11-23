@@ -112,11 +112,7 @@ object Gleo {
         val records = dao.getAll().map { TripRecord(it, corrections[it.id].orEmpty()) }
         val period = LedgerPeriod.of(periodKind(params))
         val totals = Ledger.build(records, ProfileStore(context).load(), period).totals
-        val name = when (period.kind) {
-            LedgerPeriodKind.THIS_MONTH -> "This month"
-            LedgerPeriodKind.LAST_MONTH -> "Last month"
-            LedgerPeriodKind.TAX_YEAR -> "This year"
-        }
+        val name = periodName(period.kind).replaceFirstChar { it.uppercase() }
         val message = String.format(
             Locale.US, "%s, the business-use ratio is %.1f percent: %.1f km of %.1f km driven.",
             name, totals.ratioPercent, totals.businessUseKm, totals.totalKm,
@@ -136,6 +132,24 @@ object Gleo {
         "this_year" -> LedgerPeriodKind.TAX_YEAR
         else -> LedgerPeriodKind.THIS_MONTH
     }
+
+    fun periodName(kind: LedgerPeriodKind): String = when (kind) {
+        LedgerPeriodKind.THIS_MONTH -> "this month"
+        LedgerPeriodKind.LAST_MONTH -> "last month"
+        LedgerPeriodKind.TAX_YEAR -> "this year"
+    }
+
+    /** SHOW_DOWNLOAD_QR을 진행해도 되는지. 안 되면 Gleo에 돌려줄 fail, 되면 null (이때만 파일을 만든다) */
+    fun qrPrecheck(ledger: Ledger, restricted: Boolean): Result? = when {
+        restricted -> Result(Status.FAIL, "The QR code cannot be shown while driving. Please try again after parking.")
+        ledger.rows.isEmpty() -> Result(Status.FAIL, "No confirmed trips for ${periodName(ledger.period.kind)}. Please confirm trips on the screen first.")
+        else -> null
+    }
+
+    /** QR이 화면에 떠 있을 때의 응답. 머리 정보가 비어 있으면 한 문장 덧붙인다 */
+    fun qrShownMessage(headerMissing: Boolean): String =
+        "The QR code is on the screen. Scan it with your phone camera within five minutes." +
+            if (headerMissing) " Some header fields are empty." else ""
 }
 
 /** component = "service" 함수 (화면 없이 처리): SET_TRIP_PURPOSE, GET_BUSINESS_RATIO */
