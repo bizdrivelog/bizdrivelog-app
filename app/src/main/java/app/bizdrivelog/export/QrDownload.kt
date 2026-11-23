@@ -17,7 +17,6 @@ import java.net.Inet4Address
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.concurrent.atomic.AtomicBoolean
 
 sealed interface QrState {
     data object Idle : QrState
@@ -93,7 +92,10 @@ class QrDownloadController(private val context: Context, private val onState: (Q
     }
 }
 
-/** GET /d/{token} 하나만 응답. 파일을 끝까지 보낸 뒤에야 사용 처리(중간에 끊긴 요청은 만료 전 재시도 가능). */
+/**
+ * GET /d/{token} 하나만 응답. 파일을 끝까지 보낸 뒤에야 사용 처리(중간에 끊긴 요청은 만료 전 재시도 가능).
+ * 전송 중 다른 IP의 요청은 409, 다 받은 뒤에는 410 (판단은 DownloadGate).
+ */
 private class OneTimeFileServer(
     bindHost: String?,
     port: Int,
@@ -102,7 +104,7 @@ private class OneTimeFileServer(
     private val token: String,
     private val onDownloaded: () -> Unit,
 ) : NanoHTTPD(bindHost, port) {
-    private val used = AtomicBoolean(false)
+    private val gate = DownloadGate()
 
     override fun serve(session: IHTTPSession): Response {
         val given = session.uri.removePrefix("/d/")
@@ -110,7 +112,14 @@ private class OneTimeFileServer(
             return text(Response.Status.NOT_FOUND, "Not found")
         }
         if (session.method != Method.GET) return text(Response.Status.METHOD_NOT_ALLOWED, "GET only")
-        if (used.get()) return text(Response.Status.GONE, "이미 받은 링크입니다. 차량에서 다시 QR을 만들어 주세요.")
+        val ip = session.remoteIpAddress.orEmpty()
+        val decision = gate.request(ip)
+        Log.i(TAG, "qr request ${if (BuildConfig.DEBUG) "ip=$ip " else ""}-> $decision")
+        val id = when (decision) {
+            DownloadGate.Decision.Gone -> return text(Response.Status.GONE, "이미 받은 링크입니다. 차량에서 다시 QR을 만들어 주세요.")
+            DownloadGate.Decision.Busy -> return text(Response.Status.CONFLICT, "다른 기기가 받는 중입니다. 끝난 뒤 차량에서 다시 QR을 만들어 주세요.")
+            is DownloadGate.Decision.Serve -> decision.id
+        }
         val length = file.length()
         val body = object : FilterInputStream(FileInputStream(file)) {
             var sent = 0L
@@ -119,7 +128,9 @@ private class OneTimeFileServer(
             @Throws(IOException::class)
             override fun close() {
                 super.close()
-                if (sent >= length && used.compareAndSet(false, true)) onDownloaded()
+                val complete = sent >= length
+                Log.i(TAG, "qr transfer $id ${if (complete) "complete" else "interrupted"} $sent/$length")
+                if (gate.finished(id, complete)) onDownloaded()
             }
         }
         return newFixedLengthResponse(Response.Status.OK, XLSX_MIME, body, length).apply {
@@ -133,7 +144,8 @@ private class OneTimeFileServer(
         newFixedLengthResponse(status, "text/plain; charset=utf-8", message).apply { addHeader("Cache-Control", "no-store") }
 
     companion object {
-        const val XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        private const val TAG = "BizDriveLog"
+        const val XLSX_MIME ="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         /** 한글 파일명 유지: RFC 6266 filename*(UTF-8) + 영문 대체 이름 */
         fun contentDisposition(name: String): String {
