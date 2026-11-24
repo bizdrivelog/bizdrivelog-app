@@ -6,6 +6,7 @@ import app.bizdrivelog.data.RECORD_GAP_LABEL
 import app.bizdrivelog.data.TripMode
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.data.displayValue
+import app.bizdrivelog.drive.TripEnd
 import org.dhatim.fastexcel.PaperSize
 import org.dhatim.fastexcel.Workbook
 import org.dhatim.fastexcel.Worksheet
@@ -56,6 +57,9 @@ data class LedgerRow(
     val remark: String,
 )
 
+/** 운행 사이 기록 없이 계기판이 늘어난 구간 수와 합계 km */
+data class UnrecordedGaps(val count: Int, val km: Double)
+
 data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
     /** ⑬ 업무사용비율 (%, 소수 첫째 자리) */
     val ratioPercent: Double get() = if (totalKm > 0) Math.round(businessUseKm / totalKm * 1000) / 10.0 else 0.0
@@ -66,6 +70,7 @@ data class LedgerTotals(val totalKm: Double, val businessUseKm: Double) {
  * 제외한 운행은 한 묶음에만 센다.
  * pending: 기간 안의 미확정 운행 중 계기판 값 이상이 아닌 것 (확정하면 rows·합계에 들어감)
  * anomalies: 기간 안의 계기판 값 이상 운행, 확정 여부와 관계없이 (거리를 알 수 없어 확정해도 rows·합계에 안 들어감)
+ * unrecorded: 운행 사이 기록 없이 계기판이 늘어난 구간 (주차 조작으로 버린 이동 등). 안내만 하고 ⑪에는 넣지 않는다
  */
 class Ledger(
     val profile: LedgerProfile,
@@ -73,6 +78,7 @@ class Ledger(
     val rows: List<LedgerRow>,
     val anomalies: List<TripRecord> = emptyList(),
     val pending: List<TripRecord> = emptyList(),
+    val unrecorded: UnrecordedGaps = UnrecordedGaps(0, 0.0),
 ) {
     val totals = LedgerTotals(round1(rows.sumOf { it.distanceKm }), round1(rows.sumOf { (it.commuteKm ?: 0.0) + (it.businessKm ?: 0.0) }))
     val corrections = rows.flatMap { it.record.corrections }
@@ -101,7 +107,21 @@ class Ledger(
                 }
             val anomalies = records.filter { it.trip.odometerAnomaly && inPeriod(it) }
             val pending = records.filter { it.trip.endedAt != null && !it.trip.isConfirmed && !it.trip.odometerAnomaly && inPeriod(it) }
-            return Ledger(profile, period, rows, anomalies, pending)
+            return Ledger(profile, period, rows, anomalies, pending, unrecordedGaps(records, ::inPeriod))
+        }
+
+        /**
+         * 이어짐 검사: 모든 운행(미확정·기록 공백 포함)을 출발 순으로 놓고, 앞 운행의 주행 후 계기판(⑥)과
+         * 다음 운행의 주행 전 계기판(⑤) 차이가 0.1 km 이상이면 기록 없이 늘어난 구간으로 센다 (다음 운행이 기간 안일 때).
+         * 차이가 음수(계기판 초기화 등)면 세지 않는다. 기록 공백 운행은 그 자체가 운행이라 앞뒤를 이어 준다.
+         */
+        private fun unrecordedGaps(records: List<TripRecord>, inPeriod: (TripRecord) -> Boolean): UnrecordedGaps {
+            val ordered = records.sortedWith(compareBy({ it.trip.startedAt }, { it.trip.id }))
+            val gaps = ordered.zipWithNext().mapNotNull { (prev, next) ->
+                val end = prev.trip.endOdometerKm ?: return@mapNotNull null
+                round1(next.trip.startOdometerKm - end).takeIf { it >= TripEnd.MIN_TRIP_KM && inPeriod(next) }
+            }
+            return UnrecordedGaps(gaps.size, round1(gaps.sum()))
         }
 
         /** ⑩ 비고: [구분] 업무 목적 · 방문처 (정정 n건) */
@@ -216,11 +236,17 @@ object LedgerExporter {
         listOf(9, 10, 11, tl).forEach { ws.rowHeight(it - 1, 24.0) }
     }
 
+    /** 운행 사이 기록 없이 계기판이 늘어난 구간 안내. 엑셀 안내 줄과 내보내기 화면이 같은 문구를 쓴다 */
+    fun unrecordedNote(ledger: Ledger): String? = ledger.unrecorded.takeIf { it.count > 0 }?.let {
+        "※ 운행 사이 기록 없이 계기판이 늘어난 구간 ${it.count}곳, 합계 ${String.format(Locale.KOREA, "%,.1f", it.km)} km(주차 자리 이동 등). ⑪에 포함되지 않음"
+    }
+
     /** 운행기록부 시트 아래 안내 줄 (위에서부터 순서대로). 마지막 줄은 파일 식별값 */
     fun footNotes(ledger: Ledger): List<String> = buildList {
         if (ledger.corrections.isNotEmpty()) add("※ 정정 ${ledger.corrections.size}건 반영값입니다. 원본 값과 정정 내역은 '정정 이력' 시트를 참조하세요.")
         if (ledger.pending.isNotEmpty()) add("※ 미확정 운행 ${ledger.pending.size}건은 제외했습니다. 확정한 뒤 다시 내보내면 포함됩니다.")
         if (ledger.anomalies.isNotEmpty()) add("※ 계기판 값 이상 ${ledger.anomalies.size}건은 거리를 알 수 없어 제외했습니다.")
+        unrecordedNote(ledger)?.let(::add)
         add("파일 식별값: ${fileId(ledger)}  (이 파일에 담긴 운행·정정 이력으로 계산한 값 · 같은 기록에서 내보낸 파일인지 구분하는 용도이며 위변조를 증명하지는 않습니다)")
     }
 

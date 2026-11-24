@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import app.bizdrivelog.data.LedgerProfile
 import app.bizdrivelog.data.TripRecord
 import app.bizdrivelog.export.Ledger
+import app.bizdrivelog.export.LedgerExporter
 import app.bizdrivelog.export.LedgerPeriod
 import app.bizdrivelog.export.LedgerPeriodKind
 import app.bizdrivelog.export.QrState
@@ -81,6 +82,7 @@ fun ExportScreen(
             if (ledger.anomalies.isNotEmpty()) {
                 Text("$ODOMETER_ANOMALY ${ledger.anomalies.size}건 제외 (종료 누적거리가 시작보다 작음)", style = Type.BodyS, color = Palette.Pending)
             }
+            LedgerExporter.unrecordedNote(ledger)?.let { Text(it, style = Type.BodyS, color = Palette.Pending) }
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(64.dp)) {
                 Total("⑪ 총주행거리", formatKm(ledger.totals.totalKm))
                 Total("⑫ 업무용 사용거리 (⑧+⑨)", formatKm(ledger.totals.businessUseKm))

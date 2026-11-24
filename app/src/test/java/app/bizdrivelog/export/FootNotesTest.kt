@@ -10,7 +10,10 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** 엑셀 아래 안내 줄: 한 운행은 한 줄에만. 계기판 값 이상은 확정 여부와 관계없이 이상 줄에서만 센다 */
+/**
+ * 엑셀 아래 안내 줄: 한 운행은 한 줄에만. 계기판 값 이상은 확정 여부와 관계없이 이상 줄에서만 센다.
+ * 이상 운행의 주행 전 계기판은 앞 운행의 주행 후 값과 같게 둬서 이어짐 안내 줄이 섞이지 않게 한다
+ */
 class FootNotesTest {
 
     private val zone = ZoneId.of("Asia/Seoul")
@@ -36,7 +39,7 @@ class FootNotesTest {
 
     @Test fun `확정된 이상 운행만 있으면 이상 줄만`() = assertEquals(
         listOf("※ 계기판 값 이상 1건은 거리를 알 수 없어 제외했습니다."),
-        notes(normal, trip(2, 12050.0, 0.0, confirmed = true)),
+        notes(normal, trip(2, 12012.3, 0.0, confirmed = true)),
     )
 
     @Test fun `미확정 운행만 있으면 미확정 줄만`() = assertEquals(
@@ -47,6 +50,15 @@ class FootNotesTest {
     // 확정해도 거리를 알 수 없어 포함되지 않으므로 "확정하면 포함" 줄에 넣지 않는다
     @Test fun `미확정이면서 이상이면 이상 줄에서만 센다`() = assertEquals(
         listOf("※ 계기판 값 이상 1건은 거리를 알 수 없어 제외했습니다."),
-        notes(normal, trip(2, 12050.0, 0.0, confirmed = false)),
+        notes(normal, trip(2, 12012.3, 0.0, confirmed = false)),
+    )
+
+    // 주차 조작으로 버린 이동처럼 운행 사이에 기록 없이 늘어난 거리. 이상 줄 다음, 파일 식별값 앞
+    @Test fun `운행 사이 늘어난 계기판은 이상 줄 다음에 안내한다`() = assertEquals(
+        listOf(
+            "※ 계기판 값 이상 1건은 거리를 알 수 없어 제외했습니다.",
+            "※ 운행 사이 기록 없이 계기판이 늘어난 구간 1곳, 합계 0.2 km(주차 자리 이동 등). ⑪에 포함되지 않음",
+        ),
+        notes(normal, trip(2, 12012.3, 0.0, confirmed = true), trip(3, 0.2, 5.0, confirmed = true)),
     )
 }
