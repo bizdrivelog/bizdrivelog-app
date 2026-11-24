@@ -55,10 +55,20 @@ data class VoiceAnswer(
         private val PLACE_BEFORE_VERB = Regex(
             """([0-9A-Za-z가-힣·&]{2,15}?)(?:에서|에|로|으로|랑|이랑|과|와|하고|을|를)?\s*(?:방문|미팅|회의|상담|납품|배송|다녀|들렀|갔|가서|점검|설치)""",
         )
+        /** 일반 장소어: 개인 볼일로도 흔히 가는 곳이라 이것만으로는 업무 근거가 아니다 (단어 전체 비교라 "한빛마트"·"서울대병원"은 방문처로 남음) */
+        private val VAGUE_PLACE = setOf(
+            "마트", "식당", "집", "집에", "집에서", "우리집", "자택", "본가", "학교", "대학교", "가게", "매장", "카페", "편의점", "시장",
+            "병원", "약국", "헬스장", "미용실",
+        )
+        /** 업무 장소어: 방문처 이름은 아니지만 업무 근거로 본다. 출퇴근 제안이면 출근지일 수 있어 일반 장소어처럼 본다 */
+        private val WORK_PLACE = setOf("사무실", "본사", "지사", "지점", "사무소", "공장", "창고", "대리점", "협력사", "센터")
+        /** 일반 동사(방문·들렀·다녀)를 뺀 업무 근거 */
+        private val STRONG_BUSINESS = BUSINESS.filter { it !in GENERIC_VISIT }
         private val NOT_A_PLACE = setOf(
             "거래처", "고객", "업무", "회사", "회의", "미팅", "출장", "외근", "그냥", "오늘", "방금", "아까", "잠깐", "개인", "업무상",
             "거래처에", "고객사", "현장", "업체",
-        )
+            "거기", "여기", "저기", "거기서", "여기서", "저기서", "어제", "지금", "내일",
+        ) + VAGUE_PLACE + WORK_PLACE
 
         fun parse(raw: String, suggested: TripMode?): VoiceAnswer? {
             val text = normalize(raw)
@@ -76,9 +86,17 @@ data class VoiceAnswer(
                 COMMUTE_IN.firstOrNull { it in text }?.let { return VoiceAnswer(TripMode.COMMUTE, purpose = "출근") }
             }
 
-            if (purpose != null || visit.isNotEmpty() || BUSINESS.any { it in text }) {
+            // 일반 장소어("마트 다녀왔어", "집에 갔어")만 있고 구체적 업무 근거가 없으면 판단하지 않는다(카드는 제안 그대로, 사람이 고름).
+            // 출퇴근 제안이면 사무실·본사 같은 말도 출근지일 수 있어 같이 넘긴다
+            val commuteSuggested = suggested == TripMode.COMMUTE
+            val workPlace = WORK_PLACE.firstOrNull { it in text }?.takeIf { !commuteSuggested }
+            val vague = candidates(text).any { it in VAGUE_PLACE || (commuteSuggested && it in WORK_PLACE) }
+            if (visit.isEmpty() && vague && workPlace == null && STRONG_BUSINESS.none { it in text }) return null
+
+            if (purpose != null || visit.isNotEmpty() || workPlace != null || BUSINESS.any { it in text }) {
                 val resolved = when {
                     purpose == "미팅" -> if (visit.isNotEmpty() || "거래처" in text || "고객" in text) "거래처 미팅" else "회의"
+                    workPlace != null && visit.isEmpty() && (purpose == null || purpose == "거래처 방문") -> "$workPlace 방문"
                     purpose != null -> purpose
                     visit.isNotEmpty() -> "거래처 방문"
                     else -> freeText(text)
@@ -97,8 +115,12 @@ data class VoiceAnswer(
         private fun isShortYes(word: String): Boolean =
             YES_EXACT.any { yes -> word.isNotEmpty() && word.length % yes.length == 0 && word == yes.repeat(word.length / yes.length) }
 
+        /** 방문처 후보: 회사·기관 이름 먼저, 그다음 동사 앞 말 (일반어도 걸러내기 전 그대로) */
+        private fun candidates(text: String): List<String> =
+            listOfNotNull(ORG.find(text)?.groupValues?.get(1)) + PLACE_BEFORE_VERB.findAll(text).map { it.groupValues[1] }
+
         private fun visitPlace(text: String): String {
-            ORG.find(text)?.let { return it.groupValues[1] }
+            ORG.find(text)?.groupValues?.get(1)?.takeIf { it !in NOT_A_PLACE }?.let { return it }
             return PLACE_BEFORE_VERB.findAll(text)
                 .map { it.groupValues[1] }
                 .firstOrNull { it !in NOT_A_PLACE && "출근" !in it && "퇴근" !in it && PURPOSES.none { (keys, _) -> keys.any { k -> k in it } } }

@@ -53,6 +53,29 @@ class VoiceAnswerTest {
     @Test fun personalMatterStaysPersonal() = assertEquals(VoiceAnswer(TripMode.PERSONAL), parse("개인적인 일"))
     @Test fun personalLeftAfterClientWord() = assertEquals(VoiceAnswer(TripMode.PERSONAL), parse("개인 고객 아니고 개인 볼일"))
 
+    // 일반 장소어만으로는 업무 근거가 아니다 → 판단하지 않음(카드에서 사람이 고름)
+    @Test fun martVisitIsUndecided() = assertNull(parse("마트에 다녀왔어"))
+    @Test fun goingHomeIsUndecided() = assertNull(parse("집에 갔어"))
+    @Test fun schoolIsUndecided() = assertNull(parse("학교 갔다 왔어"))
+    @Test fun hospitalIsUndecided() = assertNull(parse("병원 다녀왔어"))
+    @Test fun yesWithVaguePlaceIsUndecided() = assertNull(parse("응 마트 다녀왔어", TripMode.COMMUTE))
+    // 구체적 업무 근거가 함께 있으면 업무, 일반 장소어는 방문처에 남기지 않음
+    @Test fun deliveryToMart() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송"), parse("마트에 납품"))
+    @Test fun clientMeetingAtRestaurant() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 미팅"), parse("식당에서 거래처 미팅"))
+    @Test fun clientConsultAtCafe() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 미팅"), parse("카페에서 고객 상담"))
+    // 이름이 붙으면 단어 전체 비교라 방문처로 남는다
+    @Test fun namedMartVisit() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문", "한빛마트"), parse("한빛마트 방문"))
+    @Test fun namedHospitalVisit() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문", "서울대병원"), parse("서울대병원 방문"))
+    @Test fun namedPharmacyVisit() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문", "온누리약국"), parse("온누리약국 다녀왔어"))
+    @Test fun companyAfterHomeStop() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문", "한빛상사"), parse("집에 들렀다가 한빛상사 방문"))
+    @Test fun namedBankVisit() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "관공서·은행 업무", "신한은행"), parse("신한은행 방문"))
+    // 업무 장소어는 방문처가 아니지만 업무 근거. 출퇴근 제안이면 출근지일 수 있어 판단하지 않음
+    @Test fun officeStopIsBusiness() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "사무실 방문"), parse("사무실 들렀어"))
+    @Test fun wentToOfficeIsBusiness() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "사무실 방문"), parse("사무실 갔어"))
+    @Test fun officeOnCommuteSuggestionIsUndecided() = assertNull(parse("사무실 들렀어", TripMode.COMMUTE))
+    // 가리키는 말은 방문처가 아니다
+    @Test fun thereIsNotAPlace() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문"), parse("거기 다녀왔어"))
+
     // 같은 짧은 긍정어를 반복해도 긍정
     @Test fun repeatedYesKeepsSuggestion() {
         assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("네네", TripMode.COMMUTE))
