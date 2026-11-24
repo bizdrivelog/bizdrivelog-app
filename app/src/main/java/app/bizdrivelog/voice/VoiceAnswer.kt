@@ -13,6 +13,8 @@ data class VoiceAnswer(
 ) {
     companion object {
         private val PERSONAL = listOf("개인", "사적", "사사로", "업무 아니", "업무가 아니", "업무는 아니")
+        /** "개인"이 들어가지만 업무 상대를 가리키는 말. 개인 판정에서만 지우고 목적·방문처는 원문으로 본다 */
+        private val NOT_PERSONAL = Regex("""개인\s*(고객|사업자|업체|거래처)""")
         private val COMMUTE_OUT = listOf("퇴근")
         private val COMMUTE_IN = listOf("출근")
         /** 짧은 대답은 단어 전체가 같을 때만 ("어디", "예약"처럼 이 글자로 시작하는 말이 많아서) */
@@ -55,14 +57,14 @@ data class VoiceAnswer(
         )
         private val NOT_A_PLACE = setOf(
             "거래처", "고객", "업무", "회사", "회의", "미팅", "출장", "외근", "그냥", "오늘", "방금", "아까", "잠깐", "개인", "업무상",
-            "거래처에", "고객사", "현장",
+            "거래처에", "고객사", "현장", "업체",
         )
 
         fun parse(raw: String, suggested: TripMode?): VoiceAnswer? {
             val text = normalize(raw)
             if (text.isEmpty()) return null
 
-            if (PERSONAL.any { it in text }) return VoiceAnswer(TripMode.PERSONAL)
+            if (PERSONAL.any { it in text.replace(NOT_PERSONAL, " ") }) return VoiceAnswer(TripMode.PERSONAL)
 
             val visit = visitPlace(text)
             val purpose = PURPOSES.firstOrNull { (keys, _) -> keys.any { it in text } }?.second

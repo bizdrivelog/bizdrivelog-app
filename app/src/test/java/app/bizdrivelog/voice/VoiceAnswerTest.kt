@@ -43,6 +43,16 @@ class VoiceAnswerTest {
     @Test fun stopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근하면서 들렀어"))
     @Test fun companyStopOnTheWayHomeIsCommute() = assertEquals(VoiceAnswer(TripMode.COMMUTE, "퇴근"), parse("퇴근길에 한빛상사 들렀어"))
 
+    // "개인"이 업무 상대를 가리키는 말(개인 고객, 개인사업자 …)이면 개인 운행이 아니다
+    @Test fun individualClientMeeting() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 미팅"), parse("개인 고객 미팅"))
+    @Test fun soleProprietorClient() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "개인사업자 거래처"), parse("개인사업자 거래처"))
+    @Test fun soleProprietorClientVisit() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "거래처 방문"), parse("개인사업자 거래처 방문"))
+    @Test fun individualVendorDelivery() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송"), parse("개인 업체 납품"))
+    // 일반어 "업체"는 방문처가 아니지만, 이름에 붙은 "○○업체"는 단어 전체 비교라 그대로 남는다
+    @Test fun namedVendorKeepsVisitPlace() = assertEquals(VoiceAnswer(TripMode.BUSINESS, "납품·배송", "한빛업체"), parse("한빛업체 납품"))
+    @Test fun personalMatterStaysPersonal() = assertEquals(VoiceAnswer(TripMode.PERSONAL), parse("개인적인 일"))
+    @Test fun personalLeftAfterClientWord() = assertEquals(VoiceAnswer(TripMode.PERSONAL), parse("개인 고객 아니고 개인 볼일"))
+
     // 같은 짧은 긍정어를 반복해도 긍정
     @Test fun repeatedYesKeepsSuggestion() {
         assertEquals(VoiceAnswer(TripMode.COMMUTE), parse("네네", TripMode.COMMUTE))
