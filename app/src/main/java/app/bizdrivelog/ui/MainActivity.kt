@@ -175,12 +175,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        handleGleo(intent)
+        handleGleo()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleGleo(intent)
+        handleGleo()
     }
 
     /** 다른 앱에서 돌아오거나 화면이 다시 켜질 때(내보내기 화면 재진입 포함) 머리 정보를 다시 읽는다 */
@@ -276,11 +276,12 @@ class MainActivity : ComponentActivity() {
         if (!enabled) DriveRecorderService.stopVoice(this)
     }
 
-    /** Gleo SHOW_DOWNLOAD_QR (component = "activity"): 엑셀을 만들고 QR을 띄운 뒤 결과를 Gleo에 돌려준다 */
-    private fun handleGleo(intent: Intent?) {
-        if (intent?.action != Gleo.SHOW_DOWNLOAD_QR) return
-        setIntent(Intent(this, MainActivity::class.java))
-        val params = Gleo.params(intent)
+    /**
+     * Gleo SHOW_DOWNLOAD_QR (component = "activity"): 엑셀을 만들고 QR을 띄운 뒤 결과를 Gleo에 돌려준다.
+     * 요청은 권한이 걸린 GleoActionActivity가 넣은 것만 받는다 (이 화면은 런처 때문에 외부에 열려 있어 인텐트의 action은 보지 않는다)
+     */
+    private fun handleGleo() {
+        val params = Gleo.qrRequests.take() ?: return
         Log.i(TAG, "gleo action ${Gleo.SHOW_DOWNLOAD_QR} params=$params")
         lifecycleScope.launch {
             val result = runCatching {

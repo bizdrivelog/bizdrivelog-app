@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <application>
+        <!-- 디버그 빌드 전용: Gleo 입구의 서명 권한을 빼서 adb로 Gleo 호출을 흉내 낼 수 있게 한다 (릴리스에는 권한이 남는다) -->
+        <activity
+            android:name=".voice.GleoActionActivity"
+            tools:remove="android:permission" />
+        <receiver
+            android:name=".voice.GleoActionReceiver"
+            tools:remove="android:permission" />
         <!-- 디버그 빌드 전용: QR 주소 덮어쓰기 (릴리스 매니페스트에는 들어가지 않음) -->
         <receiver
             android:name=".export.DebugQrHostReceiver"

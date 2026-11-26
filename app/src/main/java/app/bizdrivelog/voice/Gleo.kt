@@ -36,6 +36,9 @@ object Gleo {
     /** Gleo 7초 타임아웃보다 먼저 fail로 답한다 */
     const val DEADLINE_MS = 5_000L
 
+    /** GleoActionActivity → MainActivity로 넘기는 SHOW_DOWNLOAD_QR 인자 */
+    val qrRequests = GleoInbox<JSONObject>()
+
     enum class Status(val value: String) { SUCCESS("success"), ASKING("asking"), FAIL("fail") }
 
     data class Result(val status: Status, val message: String, val data: JSONArray? = null)

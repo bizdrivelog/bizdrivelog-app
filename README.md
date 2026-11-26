@@ -82,7 +82,7 @@
 ## 알려진 제약
 
 - Pleos 개발자 콘솔에서 "Coming Soon"으로 표시된 SDK(차량·위치·음성)는 **Pleos Connect v2.1.0 에뮬레이터에서 검증한 결과 기준**입니다. 실차에서의 권한·동작은 확인하지 못했습니다.
-- Gleo 연동: 주최측 안내에 따르면 공모전 단계에서는 `schema.json`에 대한 별도 승인 절차가 없습니다. 에뮬레이터에서는 Gleo의 LLM 서버가 연결되지 않아 실제 음성 호출은 확인하지 못했습니다. 앱 쪽 호출 규격(인텐트 수신, `APP_ACTION_RESPONSE` 응답)은 구현했고, 같은 인텐트를 adb로 보내 응답 흐름을 확인했습니다.
+- Gleo 연동: 주최측 안내에 따르면 공모전 단계에서는 `schema.json`에 대한 별도 승인 절차가 없습니다. 에뮬레이터에서는 Gleo의 LLM 서버가 연결되지 않아 실제 음성 호출은 확인하지 못했습니다. 앱 쪽 호출 규격(인텐트 수신, `APP_ACTION_RESPONSE` 응답)은 구현했고, 같은 인텐트를 adb로 보내 응답 흐름을 확인했습니다. Gleo 수신부(`GleoActionActivity`, `GleoActionReceiver`)는 Gleo만 가진 서명 권한 `ai.umos.gleo.permission.APP_ACTION`을 요구해 다른 앱이나 adb에서 부를 수 없고, adb 흉내 시험은 이 권한을 뺀 디버그 빌드에서만 됩니다.
 - 주행 중 화면(`distractionOptimized`): 주최측 안내에 따르면 개발 단계에서는 문제가 없고, 적합성은 실제 배포 시 M마켓 심사에서 확인합니다. 앱은 [주행 규제 개발 가이드](https://document.pleos.ai/docs/pleos-only/vehicle-app-developer-guide/driving-restriction-development-guide)에 따라 수신한 `CarUxRestrictions`를 반영하며, 에뮬레이터에서 동작을 확인했습니다. 실차에서는 확인하지 못했습니다.
 - 에뮬레이터에는 Wi-Fi가 없어 릴리스 빌드에서는 "휴대폰으로 받기"가 핫스팟 연결 안내로 끝납니다. QR 다운로드는 디버그 빌드의 주소 덮어쓰기로 검증했습니다.
 - 기록은 차량 안에만 저장됩니다. 차량 데이터 초기화나 앱 삭제에 대비해 정기적으로 엑셀을 휴대폰으로 받아 두는 것을 권장합니다(백업 기능은 향후 과제).
