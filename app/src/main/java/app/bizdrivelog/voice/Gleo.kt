@@ -33,6 +33,8 @@ object Gleo {
     private const val TAG = "BizDriveLog"
     private const val ACTION_PARAM = "ACTION_PARAM"
     private const val RESPONSE_ACTION = "ai.pleos.playground.intent.action.APP_ACTION_RESPONSE"
+    /** Gleo(ai.umos.ambientai)가 정의하고 자신에게만 부여한 서명 권한. 매니페스트의 Gleo 입구도 같은 권한을 요구한다 */
+    private const val GLEO_PERMISSION = "ai.umos.gleo.permission.APP_ACTION"
     /** Gleo 7초 타임아웃보다 먼저 fail로 답한다 */
     const val DEADLINE_MS = 5_000L
 
@@ -66,10 +68,12 @@ object Gleo {
                 put("message", result.message)
                 result.data?.let { put("data", it.toString()) }
             }
+            // 응답에는 목적·방문처·거리가 들어가므로 Gleo만 가진 서명 권한을 받는 쪽에 요구한다
             context.sendBroadcast(
                 Intent(RESPONSE_ACTION)
                     .putExtra("packageName", context.packageName)
-                    .putExtra("response", json.toString())
+                    .putExtra("response", json.toString()),
+                GLEO_PERMISSION,
             )
             Log.i(TAG, "gleo response $json")
         }.onFailure { Log.e(TAG, "gleo response failed", it) }
